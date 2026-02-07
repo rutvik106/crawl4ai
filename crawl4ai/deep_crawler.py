@@ -21,6 +21,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
@@ -235,8 +236,11 @@ async def smart_extract(
 ) -> str:
     """Run LLM extraction on aggregated content with smart filtering.
 
-    If content is too large and screenshots are available, falls back
-    to vision-based extraction.
+    Pipeline:
+      1. Extract articles from content (chunked if too large)
+      2. Deduplicate by title
+      3. Heuristic noise filter (remove nav items, category labels, promos)
+      4. LLM second-pass filter (review remaining items for real news)
     """
     from .extraction.llm_extraction import LLMExtractionStrategy
 
@@ -255,30 +259,33 @@ async def smart_extract(
     if len(all_content) <= content_limit:
         # Fits — extract directly
         result = strategy.extract("aggregated", all_content)
-        if instruction:
-            strategy.instruction = original_instruction
-        return result
-
-    # Content too large — chunk and merge
-    chunks = _chunk_content(all_content, chunk_size=content_limit)
-    all_extracted = []
-
-    print(f"  Content too large ({len(all_content)} chars), splitting into {len(chunks)} chunks")
-
-    for i, chunk in enumerate(chunks):
-        print(f"  Extracting chunk {i+1}/{len(chunks)}...")
-        extracted = strategy.extract("aggregated", chunk)
         try:
-            items = json.loads(extracted)
-            if isinstance(items, list):
-                all_extracted.extend(items)
+            all_extracted = json.loads(result)
+            if not isinstance(all_extracted, list):
+                all_extracted = []
         except (json.JSONDecodeError, TypeError):
-            pass
+            all_extracted = []
+    else:
+        # Content too large — chunk and merge
+        chunks = _chunk_content(all_content, chunk_size=content_limit)
+        all_extracted = []
+
+        print(f"  Content too large ({len(all_content)} chars), splitting into {len(chunks)} chunks")
+
+        for i, chunk in enumerate(chunks):
+            print(f"  Extracting chunk {i+1}/{len(chunks)}...")
+            extracted = strategy.extract("aggregated", chunk)
+            try:
+                items = json.loads(extracted)
+                if isinstance(items, list):
+                    all_extracted.extend(items)
+            except (json.JSONDecodeError, TypeError):
+                pass
 
     if instruction:
         strategy.instruction = original_instruction
 
-    # Deduplicate by title
+    # ---- Step 2: Deduplicate by title ----
     seen_titles = set()
     unique = []
     for item in all_extracted:
@@ -287,7 +294,141 @@ async def smart_extract(
             seen_titles.add(title)
             unique.append(item)
 
-    return json.dumps(unique, indent=2, ensure_ascii=False)
+    print(f"  After dedup: {len(unique)} articles")
+
+    # ---- Step 3: Heuristic noise filter ----
+    cleaned = _heuristic_filter(unique)
+    print(f"  After heuristic filter: {len(cleaned)} articles (removed {len(unique) - len(cleaned)} noise items)")
+
+    # ---- Step 4: LLM second-pass filter ----
+    if cleaned and isinstance(strategy, LLMExtractionStrategy):
+        cleaned = await _llm_noise_filter(cleaned, strategy)
+        print(f"  After LLM noise filter: {len(cleaned)} articles")
+
+    return json.dumps(cleaned, indent=2, ensure_ascii=False)
+
+
+# ------------------------------------------------------------------ #
+# Noise filtering
+# ------------------------------------------------------------------ #
+
+# Navigation / category patterns that are NOT real news
+_NOISE_PATTERNS = [
+    r"^regulatory\s+update$",
+    r"^drug\s+approvals?\s*(&|and)\s*launches?$",
+    r"^financial\s+performance$",
+    r"^policy\s*(&|and)\s*regulations?$",
+    r"^mergers?\s*(&|and)\s*acquisitions?$",
+    r"^pharma\s*(tech|industry)?$",
+    r"^follow\s+us\b",
+    r"^subscribe\b",
+    r"^newsletter\b",
+    r"^explore\s+and\s+subscribe",
+    r"^get\s+updates?\b",
+    r"^download\s+app\b",
+    r"^get\s+app\b",
+    r"^sign\s+up\b",
+    r"^log\s*in\b",
+    r"^advertise\b",
+    r"^contact\s+us\b",
+    r"^about\s+us\b",
+    r"^read\s+more\b",
+    r"^view\s+(all|more)\b",
+    r"^trending\b",
+    r"^exclusive$",
+    r"^sponsored\b",
+    r"^brand\s+solutions?\b",
+    r"^et\s*pharma\s+newsletter\b",
+    r"^re-?pharma\s+awards\b",
+    r"^india\s+inc\s+on\s+the\s+move\b",
+]
+
+_NOISE_RE = [re.compile(p, re.IGNORECASE) for p in _NOISE_PATTERNS]
+
+
+def _heuristic_filter(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove obvious noise: nav items, category labels, promos, short titles."""
+    filtered = []
+    for article in articles:
+        title = article.get("title", "").strip()
+
+        # Skip very short titles (likely nav items)
+        if len(title) < 8:
+            continue
+
+        # Skip if title matches a known noise pattern
+        if any(pat.search(title) for pat in _NOISE_RE):
+            continue
+
+        # Skip if title has no spaces (single word = likely a category)
+        if " " not in title:
+            continue
+
+        # Skip if summary is empty AND title looks like a section header
+        summary = article.get("summary", "").strip()
+        if not summary and len(title.split()) <= 3:
+            continue
+
+        filtered.append(article)
+
+    return filtered
+
+
+async def _llm_noise_filter(
+    articles: List[Dict[str, Any]],
+    strategy: Any,
+) -> List[Dict[str, Any]]:
+    """Use LLM to review extracted articles and remove non-news items.
+
+    Sends a compact list of titles to the LLM and asks it to classify
+    each as real news or noise.
+    """
+    if len(articles) <= 3:
+        return articles
+
+    # Build a compact list of titles for review
+    title_list = "\n".join(
+        f"{i+1}. {a.get('title', 'N/A')}"
+        for i, a in enumerate(articles)
+    )
+
+    review_prompt = (
+        "Below is a numbered list of items extracted from a news website. "
+        "Some are REAL NEWS ARTICLES, others are noise (navigation labels, "
+        "category headers, newsletter promos, event announcements, ads, "
+        "awards listings, social media CTAs, or section titles).\n\n"
+        "Return ONLY a JSON array of the numbers (integers) that are REAL NEWS ARTICLES. "
+        "Exclude anything that is not an actual news story.\n\n"
+        f"Items:\n{title_list}\n\n"
+        "Response format: [1, 3, 5, 7, ...]"
+    )
+
+    original_instruction = strategy.instruction
+    original_schema = strategy.schema
+    strategy.instruction = review_prompt
+    strategy.schema = None  # Free-form response
+
+    try:
+        response = strategy.extract("filter", review_prompt)
+
+        # Parse the response — expect a JSON array of integers
+        response = response.strip()
+        # Try to find a JSON array in the response
+        match = re.search(r"\[[\d,\s]+\]", response)
+        if match:
+            keep_indices = json.loads(match.group())
+            # Convert to 0-indexed
+            keep_set = {int(i) - 1 for i in keep_indices if isinstance(i, (int, float))}
+            filtered = [a for idx, a in enumerate(articles) if idx in keep_set]
+            if filtered:
+                return filtered
+    except Exception as e:
+        print(f"  LLM noise filter error: {e}")
+    finally:
+        strategy.instruction = original_instruction
+        strategy.schema = original_schema
+
+    return articles  # Fallback: return unfiltered
 
 
 def _chunk_content(text: str, chunk_size: int = 10000) -> List[str]:
