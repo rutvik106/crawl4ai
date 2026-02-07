@@ -1,0 +1,307 @@
+{
+  "generated_at": "2026-02-07T20:35:36.634954",
+  "total_articles": 43,
+  "articles": [
+    {
+      "title": "France's homegrown open source online office suite",
+      "source": "github.com/suitenumerique",
+      "category": "tech",
+      "summary": "France's homegrown open source online office suite",
+      "_source_url": "https://news.ycombinator.com"
+    },
+    {
+      "title": "Start all of your commands with a comma (2009)",
+      "source": "rhodesmill.org",
+      "category": "tech",
+      "summary": "Start all of your commands with a comma (2009)",
+      "_source_url": "https://news.ycombinator.com"
+    },
+    {
+      "title": "Hoot: Scheme on WebAssembly",
+      "source": "spritely.institute",
+      "category": "tech",
+      "summary": "Hoot: Scheme on WebAssembly",
+      "_source_url": "https://news.ycombinator.com"
+    },
+    {
+      "title": "OpenCiv3: Open-source, cross-platform reimagining of Civilization III",
+      "source": "openciv3.org",
+      "category": "tech",
+      "summary": "OpenCiv3: Open-source, cross-platform reimagining of Civilization III",
+      "_source_url": "https://news.ycombinator.com"
+    },
+    {
+      "title": "Reinforcement Learning from Human Feedback",
+      "source": "arxiv.org",
+      "category": "tech",
+      "summary": "Reinforcement Learning from Human Feedback",
+      "_source_url": "https://news.ycombinator.com"
+    },
+    {
+      "title": "Coding agents have replaced every framework I used",
+      "source": "alaindichiappari.dev",
+      "category": "tech",
+      "summary": "Coding agents have replaced every framework I used",
+      "_source_url": "https://news.ycombinator.com"
+    },
+    {
+      "title": "The Waymo World Model",
+      "source": "waymo.com",
+      "category": "tech",
+      "summary": "The Waymo World Model",
+      "_source_url": "https://news.ycombinator.com"
+    },
+    {
+      "title": "Vocal Guide – belt sing without killing yourself",
+      "source": "jesperordrup.github.io",
+      "category": "tech",
+      "summary": "Vocal Guide – belt sing without killing yourself",
+      "_source_url": "https://news.ycombinator.com"
+    },
+    {
+      "title": "Unseen Footage of Atari Battlezone Arcade Cabinet Production",
+      "source": "arcadeblogger.com",
+      "category": "tech",
+      "summary": "Unseen Footage of Atari Battlezone Arcade Cabinet Production",
+      "_source_url": "https://news.ycombinator.com"
+    },
+    {
+      "title": "Ga68, a GNU Algol 68 Compiler",
+      "source": "fosdem.org",
+      "category": "tech",
+      "summary": "Ga68, a GNU Algol 68 Compiler",
+      "_source_url": "https://news.ycombinator.com"
+    },
+    {
+      "title": "Benchmark raises $225M in special funds to double down on Cerebras",
+      "source": "TechCrunch",
+      "category": "Venture",
+      "summary": "Benchmark raises $225M in special funds to double down on Cerebras",
+      "_source_url": "https://techcrunch.com"
+    },
+    {
+      "title": "An AI startup founder says he’s planning a ‘March for Billionaires’ in protest of California’s wealth tax",
+      "source": "TechCrunch",
+      "category": "Government & Policy",
+      "summary": "An AI startup founder says he’s planning a ‘March for Billionaires’ in protest of California’s wealth tax",
+      "_source_url": "https://techcrunch.com"
+    },
+    {
+      "title": "Prince Andrew advisor pitched Jeffrey Epstein on investing in EV startups like Lucid Motors",
+      "source": "TechCrunch",
+      "category": "Media & Entertainment",
+      "summary": "Prince Andrew advisor pitched Jeffrey Epstein on investing in EV startups like Lucid Motors",
+      "_source_url": "https://techcrunch.com"
+    },
+    {
+      "title": "From Svedka to Anthropic, brands make bold plays with AI in Super Bowl ads",
+      "source": "TechCrunch",
+      "category": "Media & Entertainment",
+      "summary": "From Svedka to Anthropic, brands make bold plays with AI in Super Bowl ads",
+      "_source_url": "https://techcrunch.com"
+    },
+    {
+      "title": "The backlash over OpenAI’s decision to retire GPT-4o shows how dangerous AI companions can be",
+      "source": "TechCrunch",
+      "category": "General",
+      "summary": "The backlash over OpenAI’s decision to retire GPT-4o shows how dangerous AI companions can be",
+      "_source_url": "https://techcrunch.com"
+    },
+    {
+      "title": "Maybe AI agents can be lawyers after all",
+      "source": "TechCrunch",
+      "category": "General",
+      "summary": "Maybe AI agents can be lawyers after all",
+      "_source_url": "https://techcrunch.com"
+    },
+    {
+      "title": "The Kindle Scribe Colorsoft is a pricey but pretty e-ink color tablet with AI features",
+      "source": "TechCrunch",
+      "category": "General",
+      "summary": "The Kindle Scribe Colorsoft is a pricey but pretty e-ink color tablet with AI features",
+      "_source_url": "https://techcrunch.com"
+    },
+    {
+      "title": "Senator, who has repeatedly warned about secret US government surveillance, sounds new alarm over ‘CIA activities’",
+      "source": "TechCrunch",
+      "category": "Government & Policy",
+      "summary": "Senator, who has repeatedly warned about secret US government surveillance, sounds new alarm over ‘CIA activities’",
+      "_source_url": "https://techcrunch.com"
+    },
+    {
+      "title": "Apple is working to make CarPlay compatible with AI chatbots like ChatGPT",
+      "source": "TechCrunch",
+      "category": "General",
+      "summary": "Apple is working to make CarPlay compatible with AI chatbots like ChatGPT",
+      "_source_url": "https://techcrunch.com"
+    },
+    {
+      "title": "Reddit says it’s looking for more acquisitions in adtech and elsewhere",
+      "source": "TechCrunch",
+      "category": "Social",
+      "summary": "Reddit says it’s looking for more acquisitions in adtech and elsewhere",
+      "_source_url": "https://techcrunch.com"
+    },
+    {
+      "title": "Anthropic releases Opus 4.6 with new ‘agent teams’",
+      "source": "TechCrunch",
+      "category": "General",
+      "summary": "Anthropic releases Opus 4.6 with new ‘agent teams’",
+      "_source_url": "https://techcrunch.com"
+    },
+    {
+      "title": "US wants Russia and Ukraine to end war by June, says Zelensky",
+      "source": "BBC News",
+      "category": "world",
+      "summary": "The Ukrainian leader says difficult issues remain, as Russia carries out further strikes on energy facilities.",
+      "_source_url": "https://www.bbc.com/news"
+    },
+    {
+      "title": "Will Sunday's snap election gamble pay off for Japan's first female premier?",
+      "source": "BBC News",
+      "category": "asia",
+      "summary": "Sanae Takaichi is popular - but inflation and a diplomatic row with China weigh on voters' minds.",
+      "_source_url": "https://www.bbc.com/news"
+    },
+    {
+      "title": "The retired Indian factory worker who built a library of two million books",
+      "source": "BBC News",
+      "category": "asia",
+      "summary": "Anke Gowda, whose library is open to everyone, recently received an Indian government award.",
+      "_source_url": "https://www.bbc.com/news"
+    },
+    {
+      "title": "Trump says he 'didn't see' part of video with racist clip depicting Obamas as apes",
+      "source": "BBC News",
+      "category": "us & canada",
+      "summary": "The US president says he 'didn't make a mistake', adding he had only seen the beginning of the video before it was posted.",
+      "_source_url": "https://www.bbc.com/news"
+    },
+    {
+      "title": "They were drawn to Korea with dreams of K-pop stardom - but then let down",
+      "source": "BBC News",
+      "category": "asia",
+      "summary": "Stories of aspiring foreign trainees shed light on an under-regulated industry, where there is opportunity and risk.",
+      "_source_url": "https://www.bbc.com/news"
+    },
+    {
+      "title": "Their parents are in disgrace, what now for British princesses Beatrice and Eugenie?",
+      "source": "BBC News",
+      "category": "uk",
+      "summary": "The princesses will need to step out from their parents' shadow if they are to be an active part of the Royal Family.",
+      "_source_url": "https://www.bbc.com/news"
+    },
+    {
+      "title": "Trump threatens tariffs for countries trading with Iran",
+      "source": "BBC News",
+      "category": "world",
+      "summary": "The order did not specify the rate that could be imposed, but used 25% as an example.",
+      "_source_url": "https://www.bbc.com/news"
+    },
+    {
+      "title": "Mandelson scandal 'serious' for Starmer but PM is 'man of integrity', ex-PM Brown says",
+      "source": "BBC News",
+      "category": "uk",
+      "summary": "",
+      "_source_url": "https://www.bbc.com/news"
+    },
+    {
+      "title": "Police investigating new message in search for mother of Savannah Guthrie",
+      "source": "BBC News",
+      "category": "us & canada",
+      "summary": "",
+      "_source_url": "https://www.bbc.com/news"
+    },
+    {
+      "title": "S Korean crypto firm accidentally pays out $40bn in bitcoin",
+      "source": "BBC News",
+      "category": "asia",
+      "summary": "",
+      "_source_url": "https://www.bbc.com/news"
+    },
+    {
+      "title": "Colorado funeral home director sentenced to 40 years for corpse abuse",
+      "source": "BBC News",
+      "category": "us & canada",
+      "summary": "",
+      "_source_url": "https://www.bbc.com/news"
+    },
+    {
+      "title": "Super Bowl LX: Can the NFL go global?",
+      "source": "Reuters",
+      "category": "sports",
+      "summary": "The NFL is considering expanding its reach globally, but it faces challenges in terms of competition, cultural differences, and logistical hurdles.",
+      "_source_url": "https://www.reuters.com"
+    },
+    {
+      "title": "Trump repeatedly claims victory over high prices; the numbers don't back him up",
+      "source": "Reuters",
+      "category": "world",
+      "summary": "A Reuters review of Donald Trump's speeches shows that he has claimed victory over inflation nearly 20 times, but the numbers do not support his claims.",
+      "_source_url": "https://www.reuters.com"
+    },
+    {
+      "title": "Trump refuses to apologize for video depicting Obamas as apes",
+      "source": "Reuters",
+      "category": "world",
+      "summary": "Donald Trump has refused to apologize for sharing a racist video depicting the Obamas as apes, despite widespread criticism.",
+      "_source_url": "https://www.reuters.com"
+    },
+    {
+      "title": "French justice opens Epstein-linked probe against former culture minister",
+      "source": "Reuters",
+      "category": "world",
+      "summary": "French justice has opened an investigation into a former culture minister linked to Jeffrey Epstein, a financier who was convicted of sex trafficking.",
+      "_source_url": "https://www.reuters.com"
+    },
+    {
+      "title": "Once feted Mandelson becomes nightmare for weakened UK PM Starmer",
+      "source": "Reuters",
+      "category": "world",
+      "summary": "Peter Mandelson, a former UK cabinet minister, has become a thorn in the side of Prime Minister Starmer, who is struggling to maintain his party's grip on power.",
+      "_source_url": "https://www.reuters.com"
+    },
+    {
+      "title": "Iran says it will strike American bases if US attacks",
+      "source": "Reuters",
+      "category": "world",
+      "summary": "Iran has threatened to strike American bases if the US launches an attack on its territory, amid rising tensions between the two countries.",
+      "_source_url": "https://www.reuters.com"
+    },
+    {
+      "title": "Farmers report 'catastrophic' damage to crops as Storm Marta hits Spain and Portugal",
+      "source": "Reuters",
+      "category": "sustainability",
+      "summary": "Farmers in Spain and Portugal are reporting significant damage to their crops as Storm Marta hits the region, causing widespread disruption.",
+      "_source_url": "https://www.reuters.com"
+    },
+    {
+      "title": "Suspected arson hits Italian rail network near Bologna, police say",
+      "source": "Reuters",
+      "category": "world",
+      "summary": "Italian police are investigating a suspected arson attack on the rail network near Bologna, which has caused significant disruption to train services.",
+      "_source_url": "https://www.reuters.com"
+    },
+    {
+      "title": "Not Devil's Island: Sardinia bristles at mafia inmate plan",
+      "source": "Reuters",
+      "category": "world",
+      "summary": "The Italian island of Sardinia is resisting a plan to transfer mafia inmates to the island, which has a reputation for being a place of exile.",
+      "_source_url": "https://www.reuters.com"
+    },
+    {
+      "title": "Political tensions surface at slick Milano Cortina opening ceremony",
+      "source": "Reuters",
+      "category": "sports",
+      "summary": "Tensions between rival nations were evident at the opening ceremony of the Winter Olympics in Milano Cortina, with some spectators booing the Israeli team.",
+      "_source_url": "https://www.reuters.com"
+    },
+    {
+      "title": "Record ticket sales mark Winter Games opening",
+      "source": "Reuters",
+      "category": "sports",
+      "summary": "The Winter Olympics in Milano Cortina have seen record ticket sales, with fans flocking to the event in large numbers.",
+      "_source_url": "https://www.reuters.com"
+    }
+  ]
+}

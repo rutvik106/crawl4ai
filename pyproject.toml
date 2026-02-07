@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "crawl4ai"
+version = "0.1.0"
+description = "An open-source LLM-friendly Web Crawler & Scraper"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+dependencies = [
+    "playwright>=1.40.0",
+    "html2text>=2024.2.26",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.1.0",
+    "litellm>=1.30.0",
+    "pydantic>=2.0.0",
+    "aiohttp>=3.9.0",
+    "psutil>=5.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["crawl4ai*"]
