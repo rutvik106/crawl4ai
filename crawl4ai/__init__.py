@@ -12,6 +12,7 @@ from .adaptive_crawler import AdaptiveCrawler
 from .markdown_generation_strategy import DefaultMarkdownGenerator
 from .hooks import HookRegistry
 from .login import LoginConfig, LoginStep
+from .deep_crawler import DeepCrawlConfig, deep_crawl, smart_extract
 from .output import (
     OutputManager,
     JsonFileOutput,
@@ -44,6 +45,9 @@ __all__ = [
     "HTMLReportOutput",
     "EmailOutput",
     "WebhookOutput",
+    "DeepCrawlConfig",
+    "deep_crawl",
+    "smart_extract",
 ]
 
 __version__ = "0.1.0"
