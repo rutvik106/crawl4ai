@@ -246,7 +246,10 @@ async def smart_extract(
 
     strategy = run_conf.extraction_strategy
     if not isinstance(strategy, LLMExtractionStrategy):
+        print("[smart_extract] strategy is not LLMExtractionStrategy, returning empty")
         return ""
+
+    print(f"[smart_extract] content length: {len(all_content)} chars")
 
     # Override instruction for smart filtering
     if instruction:
@@ -258,32 +261,51 @@ async def smart_extract(
 
     if len(all_content) <= content_limit:
         # Fits — extract directly
-        result = strategy.extract("aggregated", all_content)
+        print(f"[smart_extract] Content fits ({len(all_content)} <= {content_limit}), extracting directly...")
+        try:
+            result = strategy.extract("aggregated", all_content)
+            print(f"[smart_extract] LLM returned {len(result) if result else 0} chars")
+            print(f"[smart_extract] LLM preview: {str(result)[:200]}")
+        except Exception as e:
+            print(f"[smart_extract] LLM extract ERROR: {e}")
+            result = "[]"
         try:
             all_extracted = json.loads(result)
             if not isinstance(all_extracted, list):
+                print(f"[smart_extract] Parsed result is {type(all_extracted).__name__}, not list")
                 all_extracted = []
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"[smart_extract] JSON parse error: {e}")
             all_extracted = []
     else:
         # Content too large — chunk and merge
         chunks = _chunk_content(all_content, chunk_size=content_limit)
         all_extracted = []
 
-        print(f"  Content too large ({len(all_content)} chars), splitting into {len(chunks)} chunks")
+        print(f"[smart_extract] Content too large ({len(all_content)} chars), splitting into {len(chunks)} chunks")
 
         for i, chunk in enumerate(chunks):
-            print(f"  Extracting chunk {i+1}/{len(chunks)}...")
-            extracted = strategy.extract("aggregated", chunk)
+            print(f"[smart_extract] Extracting chunk {i+1}/{len(chunks)} ({len(chunk)} chars)...")
+            try:
+                extracted = strategy.extract("aggregated", chunk)
+                print(f"[smart_extract]   Chunk {i+1} returned {len(extracted) if extracted else 0} chars")
+            except Exception as e:
+                print(f"[smart_extract]   Chunk {i+1} ERROR: {e}")
+                continue
             try:
                 items = json.loads(extracted)
                 if isinstance(items, list):
                     all_extracted.extend(items)
-            except (json.JSONDecodeError, TypeError):
-                pass
+                    print(f"[smart_extract]   Chunk {i+1}: {len(items)} items")
+                else:
+                    print(f"[smart_extract]   Chunk {i+1}: parsed as {type(items).__name__}, not list")
+            except (json.JSONDecodeError, TypeError) as e:
+                print(f"[smart_extract]   Chunk {i+1} JSON parse error: {e}")
 
     if instruction:
         strategy.instruction = original_instruction
+
+    print(f"[smart_extract] Total extracted: {len(all_extracted)} items")
 
     # ---- Step 2: Deduplicate by title ----
     seen_titles = set()
