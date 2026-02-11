@@ -1,0 +1,59 @@
+Metadata-Version: 2.4
+Name: crawl4ai
+Version: 0.1.0
+Summary: An open-source LLM-friendly Web Crawler & Scraper
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: playwright>=1.40.0
+Requires-Dist: html2text>=2024.2.26
+Requires-Dist: beautifulsoup4>=4.12.0
+Requires-Dist: lxml>=5.1.0
+Requires-Dist: litellm>=1.30.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: aiohttp>=3.9.0
+Requires-Dist: psutil>=5.9.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23.0; extra == "dev"
+Dynamic: requires-python
+
+# Crawl4AI
+
+An open-source LLM-friendly Web Crawler & Scraper.
+
+## Features
+
+- **Async crawling** with headless Chromium via Playwright
+- **Automatic HTML-to-Markdown** conversion with configurable content filters
+- **CSS/XPath extraction** for structured JSON output
+- **LLM-based extraction** supporting OpenAI, Ollama, and other providers
+- **Adaptive crawling** with automatic stopping and confidence scoring
+- **Multi-URL concurrency** with memory-adaptive dispatching
+- **Dynamic page support** with JavaScript execution and session management
+
+## Installation
+
+```bash
+pip install -e .
+playwright install chromium
+```
+
+## Quick Start
+
+```python
+import asyncio
+from crawl4ai import AsyncWebCrawler
+
+async def main():
+    async with AsyncWebCrawler() as crawler:
+        result = await crawler.arun("https://example.com")
+        print(result.markdown[:300])
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## Documentation
+
+See the [Getting Started tutorial](docs/tutorials/getting-started.md) for a full walkthrough.
