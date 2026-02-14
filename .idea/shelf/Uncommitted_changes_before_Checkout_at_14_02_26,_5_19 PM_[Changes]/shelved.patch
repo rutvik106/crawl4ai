@@ -1,0 +1,63 @@
+Index: crawl4ai/output/base.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>\"\"\"Output backend manager abstractions.\"\"\"\n\nfrom __future__ import annotations\n\nfrom typing import Iterable, List, Protocol\n\nfrom crawl4ai.models import CrawlResult\n\n\nclass OutputBackend(Protocol):\n    \"\"\"Protocol implemented by all output backends.\"\"\"\n\n    def save(self, result: CrawlResult) -> None:\n        ...\n\n    def finalize(self) -> None:\n        ...\n\n\nclass OutputManager:\n    \"\"\"Dispatch crawl results to a list of output backends.\"\"\"\n\n    def __init__(self, backends: Iterable[OutputBackend] | None = None) -> None:\n        self.backends: List[OutputBackend] = list(backends or [])\n\n    def save(self, result: CrawlResult) -> None:\n        for backend in self.backends:\n            backend.save(result)\n\n    def save_many(self, results: Iterable[CrawlResult]) -> None:\n        for result in results:\n            self.save(result)\n\n    def finalize(self) -> None:\n        for backend in self.backends:\n            finalize = getattr(backend, \"finalize\", None)\n            if callable(finalize):\n                finalize()\n
+===================================================================
+diff --git a/crawl4ai/output/base.py b/crawl4ai/output/base.py
+--- a/crawl4ai/output/base.py	(revision 155693fdcd4e38ecb8e4e8dfd10a00813b9d41cc)
++++ b/crawl4ai/output/base.py	(date 1770844714970)
+@@ -35,4 +35,7 @@
+         for backend in self.backends:
+             finalize = getattr(backend, "finalize", None)
+             if callable(finalize):
+-                finalize()
++                try:
++                    finalize()
++                except Exception as e:
++                    print(f"[output] {type(backend).__name__}.finalize() failed: {e}")
+Index: crawl4ai/output/email_output.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>\"\"\"Email output backend.\"\"\"\n\nfrom __future__ import annotations\n\nimport json\nimport smtplib\nfrom email.message import EmailMessage\nfrom typing import Any, List\n\nfrom crawl4ai.models import CrawlResult\n\n\nclass EmailOutput:\n    \"\"\"Send crawl summaries by email on finalize.\"\"\"\n\n    def __init__(\n        self,\n        to: str,\n        smtp_host: str,\n        smtp_port: int = 587,\n        smtp_user: str | None = None,\n        smtp_password: str | None = None,\n        subject: str = \"Crawl4AI results\",\n        from_email: str | None = None,\n    ) -> None:\n        self.to = to\n        self.smtp_host = smtp_host\n        self.smtp_port = smtp_port\n        self.smtp_user = smtp_user\n        self.smtp_password = smtp_password\n        self.subject = subject\n        self.from_email = from_email or smtp_user or \"crawl4ai@localhost\"\n        self._results: List[CrawlResult] = []\n\n    @staticmethod\n    def _parse_extracted(value: Any) -> Any:\n        if value is None:\n            return []\n        if isinstance(value, (dict, list)):\n            return value\n        if isinstance(value, str):\n            text = value.strip()\n            if not text:\n                return []\n            try:\n                return json.loads(text)\n            except json.JSONDecodeError:\n                # fallback: extract first json array/object inside text blob\n                start = min([i for i in [text.find(\"[\"), text.find(\"{\")] if i != -1], default=-1)\n                if start >= 0:\n                    snippet = text[start:]\n                    for opener, closer in [(\"[\", \"]\"), (\"{\", \"}\")]:\n                        if snippet.startswith(opener):\n                            end = snippet.rfind(closer)\n                            if end > 0:\n                                candidate = snippet[: end + 1]\n                                try:\n                                    return json.loads(candidate)\n                                except json.JSONDecodeError:\n                                    pass\n                return []\n        return []\n\n    def save(self, result: CrawlResult) -> None:\n        self._results.append(result)\n\n    def _build_body(self) -> str:\n        lines = [f\"Total crawl results: {len(self._results)}\", \"\"]\n        for idx, result in enumerate(self._results, start=1):\n            lines.append(f\"{idx}. {result.url} — {'success' if result.success else 'failed'}\")\n        return \"\\n\".join(lines)\n\n    def finalize(self) -> None:\n        if not self._results:\n            return\n        if not self.to or not self.smtp_host:\n            return\n\n        msg = EmailMessage()\n        msg[\"Subject\"] = self.subject\n        msg[\"From\"] = self.from_email\n        msg[\"To\"] = self.to\n        msg.set_content(self._build_body())\n\n        with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as smtp:\n            smtp.ehlo()\n            try:\n                smtp.starttls()\n            except smtplib.SMTPException:\n                pass\n            if self.smtp_user and self.smtp_password:\n                smtp.login(self.smtp_user, self.smtp_password)\n            smtp.send_message(msg)\n
+===================================================================
+diff --git a/crawl4ai/output/email_output.py b/crawl4ai/output/email_output.py
+--- a/crawl4ai/output/email_output.py	(revision 155693fdcd4e38ecb8e4e8dfd10a00813b9d41cc)
++++ b/crawl4ai/output/email_output.py	(date 1770844707807)
+@@ -72,8 +72,10 @@
+ 
+     def finalize(self) -> None:
+         if not self._results:
++            print("[email] No results to send, skipping email.")
+             return
+         if not self.to or not self.smtp_host:
++            print(f"[email] Missing recipient ({self.to!r}) or SMTP host ({self.smtp_host!r}), skipping.")
+             return
+ 
+         msg = EmailMessage()
+@@ -82,12 +84,17 @@
+         msg["To"] = self.to
+         msg.set_content(self._build_body())
+ 
+-        with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as smtp:
+-            smtp.ehlo()
+-            try:
+-                smtp.starttls()
+-            except smtplib.SMTPException:
+-                pass
+-            if self.smtp_user and self.smtp_password:
+-                smtp.login(self.smtp_user, self.smtp_password)
+-            smtp.send_message(msg)
++        try:
++            print(f"[email] Sending to {self.to} via {self.smtp_host}:{self.smtp_port} ...")
++            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as smtp:
++                smtp.ehlo()
++                try:
++                    smtp.starttls()
++                except smtplib.SMTPException:
++                    pass
++                if self.smtp_user and self.smtp_password:
++                    smtp.login(self.smtp_user, self.smtp_password)
++                smtp.send_message(msg)
++            print(f"[email] Sent successfully to {self.to}")
++        except Exception as e:
++            print(f"[email] FAILED to send to {self.to}: {e}")

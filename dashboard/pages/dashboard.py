@@ -5,8 +5,8 @@ from dashboard import db
 
 
 def render():
-    st.title("🏠 Dashboard")
-    st.caption("Overview of your crawl jobs")
+    st.title("Dashboard")
+    st.caption("Overview of your intelligence jobs")
 
     jobs = db.list_jobs(limit=100)
 
@@ -29,7 +29,7 @@ def render():
     # Schedules summary
     scheds = db.list_schedules()
     active_scheds = sum(1 for s in scheds if s.get("enabled"))
-    st.subheader(f"⏰ Active Schedules: {active_scheds}")
+    st.subheader(f"Active Schedules: {active_scheds}")
 
     st.divider()
 
@@ -42,16 +42,16 @@ def render():
 
     for job in jobs[:10]:
         status = job["status"]
-        status_icon = {
-            "pending": "⏳",
-            "running": "🔄",
-            "completed": "✅",
-            "failed": "❌",
-        }.get(status, "❓")
+        status_text = {
+            "pending": "Pending",
+            "running": "Running",
+            "completed": "Completed",
+            "failed": "Failed",
+        }.get(status, "Unknown")
 
         with st.container():
             c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
-            c1.markdown(f"**{status_icon} {job['name']}**")
+            c1.markdown(f"**{job['name']}**")
             c2.caption(job["url"][:60])
             c3.caption(f"{job.get('article_count', 0) or 0} articles")
             c4.caption(job["created_at"][:16] if job["created_at"] else "")

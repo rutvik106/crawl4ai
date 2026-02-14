@@ -6,13 +6,13 @@ from dashboard import db
 
 
 def render():
-    st.title("⚙️ Settings")
+    st.title("Settings")
     st.caption("Configure API keys, SMTP credentials, and defaults")
 
     # Load current settings (fall back to env vars)
     settings = db.get_all_settings()
 
-    st.subheader("🔑 LLM API Keys")
+    st.subheader("LLM API Keys")
 
     groq_key = st.text_input(
         "Groq API Key",
@@ -28,7 +28,7 @@ def render():
 
     st.divider()
 
-    st.subheader("📧 SMTP Configuration")
+    st.subheader("SMTP Configuration")
 
     col1, col2 = st.columns(2)
     smtp_host = col1.text_input(
@@ -51,7 +51,7 @@ def render():
 
     st.divider()
 
-    st.subheader("🕷️ Crawl Defaults")
+    st.subheader("Intelligence Defaults")
 
     col1, col2 = st.columns(2)
     default_max_scrolls = col1.number_input(
@@ -76,7 +76,7 @@ def render():
 
     st.divider()
 
-    if st.button("💾 Save Settings", type="primary", use_container_width=True):
+    if st.button("Save Settings", type="primary", width="stretch"):
         db.set_setting("groq_api_key", groq_key)
         db.set_setting("llm_provider", llm_provider)
         db.set_setting("smtp_host", smtp_host)
@@ -91,7 +91,7 @@ def render():
     st.divider()
 
     # Test SMTP connection
-    st.subheader("🧪 Test Email")
+    st.subheader("Test Email")
     test_email = st.text_input("Send test email to", placeholder="your@email.com")
     if st.button("Send Test"):
         if test_email and smtp_host and smtp_user and smtp_password:
@@ -106,11 +106,11 @@ def _send_test_email(host, port, user, password, to):
 
     try:
         msg = MIMEText(
-            "<h2>Crawl4AI Test Email</h2>"
-            "<p>If you see this, your SMTP settings are working correctly! 🎉</p>",
+            "<h2>Impeerical 4 AI Test Email</h2>"
+            "<p>If you see this, your SMTP settings are working correctly!</p>",
             "html",
         )
-        msg["Subject"] = "Crawl4AI: Test Email"
+        msg["Subject"] = "Impeerical 4 AI: Test Email"
         msg["From"] = user
         msg["To"] = to
 

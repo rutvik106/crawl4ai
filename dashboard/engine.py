@@ -85,7 +85,7 @@ async def _execute_job(job_id: str) -> None:
 
     # Build output backends
     recipients = config.get("recipients", "")
-    email_subject = config.get("email_subject", f"Crawl4AI: {job['name']}")
+    email_subject = config.get("email_subject", f"Impeerical 4 AI: {job['name']}")
 
     _, _, outputs = create_job_outputs(
         project_root=project_root,

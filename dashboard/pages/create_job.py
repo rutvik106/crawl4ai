@@ -8,7 +8,7 @@ from crawl4ai.output.job import generate_job_id
 
 
 def render():
-    st.title("➕ Create New Job")
+    st.title("Create New Job")
 
     # Wizard steps
     if "wizard_step" not in st.session_state:
@@ -47,7 +47,7 @@ def _step_source():
     )
 
     col1, col2 = st.columns([4, 1])
-    if col2.button("Next →", use_container_width=True, type="primary"):
+    if col2.button("Next", width="stretch", type="primary"):
         if not url:
             st.error("Please enter a URL")
             return
@@ -105,10 +105,10 @@ def _step_schema():
     st.session_state.job_instruction = custom_instruction
 
     col1, col2, col3 = st.columns([1, 3, 1])
-    if col1.button("← Back", use_container_width=True):
+    if col1.button("Back", width="stretch"):
         st.session_state.wizard_step = 1
         st.rerun()
-    if col3.button("Next →", use_container_width=True, type="primary"):
+    if col3.button("Next", width="stretch", type="primary"):
         st.session_state.wizard_step = 3
         st.rerun()
 
@@ -154,10 +154,10 @@ def _step_navigation():
     st.session_state.job_nav_config = config
 
     col1, col2, col3 = st.columns([1, 3, 1])
-    if col1.button("← Back", use_container_width=True):
+    if col1.button("Back", width="stretch"):
         st.session_state.wizard_step = 2
         st.rerun()
-    if col3.button("Next →", use_container_width=True, type="primary"):
+    if col3.button("Next", width="stretch", type="primary"):
         st.session_state.wizard_step = 4
         st.rerun()
 
@@ -175,7 +175,7 @@ def _step_recipients():
     email_subject = st.text_input(
         "Email subject (optional)",
         value=st.session_state.get("job_email_subject", ""),
-        placeholder=f"Crawl4AI: {st.session_state.get('job_name', 'News Feed')}",
+        placeholder=f"Impeerical 4 AI: {st.session_state.get('job_name', 'News Feed')}",
     )
     st.session_state.job_email_subject = email_subject
 
@@ -273,10 +273,10 @@ def _step_recipients():
         st.session_state.job_cron = cron
 
     col1, col2, col3 = st.columns([1, 3, 1])
-    if col1.button("← Back", use_container_width=True):
+    if col1.button("Back", width="stretch"):
         st.session_state.wizard_step = 3
         st.rerun()
-    if col3.button("Next →", use_container_width=True, type="primary"):
+    if col3.button("Next", width="stretch", type="primary"):
         st.session_state.wizard_step = 5
         st.rerun()
 
@@ -309,11 +309,11 @@ def _step_review():
 
     col1, col2, col3 = st.columns([1, 2, 1])
 
-    if col1.button("← Back", use_container_width=True):
+    if col1.button("Back", width="stretch"):
         st.session_state.wizard_step = 4
         st.rerun()
 
-    if col3.button("🚀 Create & Run", use_container_width=True, type="primary"):
+    if col3.button("Create & Run", width="stretch", type="primary"):
         _create_and_run()
 
 
