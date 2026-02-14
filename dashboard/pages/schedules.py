@@ -6,19 +6,20 @@ from dashboard import db
 
 
 def render():
-    st.title("Schedules")
-    st.caption("Manage recurring intelligence jobs")
+    st.title("⏰ Schedules")
+    st.caption("Manage recurring crawl jobs")
 
     schedules = db.list_schedules()
 
     if not schedules:
-        st.info("No schedules yet. Create one from the **New Job** page by selecting 'Schedule recurring'.")
+        st.info("No schedules yet. Create one from the **➕ New Job** page by selecting 'Schedule recurring'.")
         return
 
     for sched in schedules:
         enabled = bool(sched.get("enabled", 1))
+        icon = "🟢" if enabled else "🔴"
 
-        with st.expander(f"**{sched['job_name']}** — `{sched['cron']}`", expanded=False):
+        with st.expander(f"{icon} **{sched['job_name']}** — `{sched['cron']}`", expanded=False):
             col1, col2, col3 = st.columns(3)
             col1.markdown(f"**URL:** {sched['url'][:60]}")
             col2.markdown(f"**Cron:** `{sched['cron']}`")
@@ -34,18 +35,18 @@ def render():
             col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
 
             if enabled:
-                if col1.button("Disable", key=f"dis_{sched['id']}"):
+                if col1.button("⏸️ Disable", key=f"dis_{sched['id']}"):
                     db.update_schedule(sched["id"], enabled=0)
                     st.rerun()
             else:
-                if col1.button("Enable", key=f"en_{sched['id']}"):
+                if col1.button("▶️ Enable", key=f"en_{sched['id']}"):
                     db.update_schedule(sched["id"], enabled=1)
                     st.rerun()
 
-            if col2.button("Run Now", key=f"run_{sched['id']}"):
+            if col2.button("▶ Run Now", key=f"run_{sched['id']}"):
                 _run_schedule_now(sched)
 
-            if col3.button("Delete", key=f"del_{sched['id']}"):
+            if col3.button("🗑️ Delete", key=f"del_{sched['id']}"):
                 db.delete_schedule(sched["id"])
                 st.rerun()
 

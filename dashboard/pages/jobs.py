@@ -7,17 +7,17 @@ from dashboard import db
 
 
 def render():
-    st.title("Jobs")
+    st.title("📋 Jobs")
 
     # Refresh button
     col1, col2 = st.columns([4, 1])
-    if col2.button("Refresh", width="stretch"):
+    if col2.button("🔄 Refresh", use_container_width=True):
         st.rerun()
 
     jobs = db.list_jobs(limit=50)
 
     if not jobs:
-        st.info("No jobs yet. Create one from the **New Job** page.")
+        st.info("No jobs yet. Create one from the **➕ New Job** page.")
         return
 
     # Filter tabs
@@ -40,9 +40,10 @@ def _render_job_list(jobs, prefix=""):
 
     for idx, job in enumerate(jobs):
         status = job["status"]
+        icon = {"pending": "⏳", "running": "🔄", "completed": "✅", "failed": "❌"}.get(status, "❓")
         uk = f"{prefix}_{idx}_{job['id']}"  # unique key base
 
-        with st.expander(f"**{job['name']}** — {job['url'][:50]}...", expanded=(status == "running")):
+        with st.expander(f"{icon} **{job['name']}** — {job['url'][:50]}...", expanded=(status == "running")):
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("Status", status.upper())
             col2.metric("Articles", job.get("article_count", 0) or 0)
@@ -51,9 +52,6 @@ def _render_job_list(jobs, prefix=""):
             col4.metric("Finished", finished[:16] if finished else "—")
 
             st.caption(f"Job ID: `{job['id']}`")
-
-            # Job Configuration details
-            _render_job_config(job)
 
             if job.get("error"):
                 with st.container():
@@ -86,7 +84,7 @@ def _render_job_list(jobs, prefix=""):
                                 _view_json(path)
                         elif rel.endswith(".png"):
                             if col3.button("View", key=f"{uk}_view_{rel}"):
-                                st.image(path, caption=rel, width="stretch")
+                                st.image(path, caption=rel, use_container_width=True)
                         elif rel.endswith(".html"):
                             col3.caption("Open in browser")
                         elif rel.endswith(".csv"):
@@ -101,9 +99,9 @@ def _render_job_list(jobs, prefix=""):
             # Actions
             st.divider()
             col1, col2, col3 = st.columns([1, 1, 4])
-            if col1.button("Re-run", key=f"{uk}_rerun"):
+            if col1.button("🔄 Re-run", key=f"{uk}_rerun"):
                 _rerun_job(job)
-            if col2.button("Delete", key=f"{uk}_del"):
+            if col2.button("🗑️ Delete", key=f"{uk}_del"):
                 db.delete_job(job["id"])
                 st.rerun()
 
@@ -121,7 +119,7 @@ def _view_csv(path):
     try:
         import pandas as pd
         df = pd.read_csv(path)
-        st.dataframe(df, width="stretch")
+        st.dataframe(df, use_container_width=True)
     except ImportError:
         with open(path) as f:
             st.code(f.read()[:5000], language=None)
@@ -151,7 +149,7 @@ def _show_articles(json_path):
                 extracted = ext
 
         if isinstance(extracted, list) and extracted:
-            st.subheader(f"Extracted Articles ({len(extracted)})")
+            st.subheader(f"📰 Extracted Articles ({len(extracted)})")
             for i, article in enumerate(extracted, 1):
                 title = article.get("title", "N/A")
                 cat = article.get("category", "")
@@ -160,58 +158,12 @@ def _show_articles(json_path):
 
                 st.markdown(
                     f"**{i}. {title}**  \n"
-                    f"`{cat}` · {source}"
+                    f"🏷️ `{cat}` · 📰 {source}"
                     + (f"  \n_{summary[:200]}_" if summary else "")
                 )
 
     except Exception:
         pass
-
-
-def _render_job_config(job):
-    """Display job configuration details."""
-    config_raw = job.get("config", "{}")
-    config = json.loads(config_raw) if isinstance(config_raw, str) else (config_raw or {})
-    if not config:
-        return
-
-    st.divider()
-    st.subheader("Job Configuration")
-
-    # Source & Recipients
-    col1, col2 = st.columns(2)
-    col1.markdown(f"**URL:** `{job.get('url', '')}")
-    recipients = config.get("recipients", "")
-    col2.markdown(f"**Recipients:** {recipients if recipients else '—'}")
-
-    email_subject = config.get("email_subject", "")
-    if email_subject:
-        st.markdown(f"**Email Subject:** {email_subject}")
-
-    # Navigation settings
-    col1, col2, col3, col4 = st.columns(4)
-    col1.markdown(f"**Scroll:** {'Yes' if config.get('scroll') else 'No'}")
-    col2.markdown(f"**Max Scrolls:** {config.get('max_scrolls', '—')}")
-    col3.markdown(f"**Load More:** {'Yes' if config.get('click_load_more') else 'No'}")
-    col4.markdown(f"**Follow Links:** {'Yes' if config.get('follow_links') else 'No'}")
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.markdown(f"**Max Inner Pages:** {config.get('max_inner_pages', '—')}")
-    col2.markdown(f"**Smart Filter:** {'Yes' if config.get('smart_filter') else 'No'}")
-    col3.markdown(f"**Screenshots:** {'Yes' if config.get('screenshots') else 'No'}")
-    link_filter = config.get("link_filter", "")
-    col4.markdown(f"**Link Filter:** `{link_filter}`" if link_filter else "**Link Filter:** —")
-
-    # Extraction instruction
-    instruction = config.get("extraction_instruction", "")
-    if instruction:
-        st.markdown(f"**Extraction Instruction:** _{instruction}_")
-
-    # Schema
-    schema = config.get("schema_fields", {})
-    if schema:
-        with st.expander("Schema Fields", expanded=False):
-            st.json(schema)
 
 
 def _rerun_job(job):

@@ -4,14 +4,15 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27227340-3a1d-4c23-954b-135dcd9cf422" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/crawl4ai/output/base.py" beforeDir="false" afterPath="$PROJECT_DIR$/crawl4ai/output/base.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/crawl4ai/output/email_output.py" beforeDir="false" afterPath="$PROJECT_DIR$/crawl4ai/output/email_output.py" afterDir="false" />
+    <list default="true" id="27227340-3a1d-4c23-954b-135dcd9cf422" name="Changes" comment="Introduce improvements to output and dashboard functionalities, including robust error handling, enhanced email notifications, and refinements to the Streamlit layout.">
+      <change beforePath="$PROJECT_DIR$/New-Logo-Impeerical.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/dashboard/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/app.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/dashboard/crawl4ai_dashboard.db" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/crawl4ai_dashboard.db" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dashboard/crawl4ai_dashboard.db-shm" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/dashboard/crawl4ai_dashboard.db-wal" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/dashboard/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/engine.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/dashboard/pages/create_job.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/pages/create_job.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dashboard/pages/dashboard.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/pages/dashboard.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/dashboard/pages/jobs.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/pages/jobs.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dashboard/pages/schedules.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/pages/schedules.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/dashboard/pages/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/pages/settings.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -20,13 +21,13 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="787" />
+    <option name="cachedIndexableFilesCount" value="229" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="main" />
+        <entry key="$PROJECT_DIR$" value="master" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -65,7 +66,7 @@
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "ai.playground.ignore.import.keys.banner.in.settings": "true",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "git-widget-placeholder": "rutvik/vibe/codex-1",
+    "git-widget-placeholder": "original",
     "junie.onboarding.icon.badge.shown": "true",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
@@ -93,10 +94,24 @@
       <updated>1770811483533</updated>
       <workItem from="1770811491005" duration="3415000" />
       <workItem from="1771064905157" duration="78000" />
+      <workItem from="1771069720936" duration="308000" />
     </task>
+    <task id="LOCAL-00001" summary="Introduce improvements to output and dashboard functionalities, including robust error handling, enhanced email notifications, and refinements to the Streamlit layout.">
+      <option name="closed" value="true" />
+      <created>1771069823442</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1771069823442</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Introduce improvements to output and dashboard functionalities, including robust error handling, enhanced email notifications, and refinements to the Streamlit layout." />
+    <option name="LAST_COMMIT_MESSAGE" value="Introduce improvements to output and dashboard functionalities, including robust error handling, enhanced email notifications, and refinements to the Streamlit layout." />
   </component>
 </project>
