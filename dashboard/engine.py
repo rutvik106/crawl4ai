@@ -9,7 +9,10 @@ import sys
 import threading
 import traceback
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
+
+# Set to track running job IDs and prevent duplicates
+_running_jobs: Set[str] = set()
 
 # Ensure crawl4ai is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -41,13 +44,29 @@ from . import db
 
 
 def run_job_async(job_id: str) -> None:
-    """Run a crawl job in a background thread with its own event loop."""
+    """Run a crawl job in a background thread with its own event loop.
+    
+    Prevents duplicate execution of the same job ID.
+    """
+    global _running_jobs
+    
+    # Check if job is already running
+    if job_id in _running_jobs:
+        print(f"[engine] Job {job_id} is already running, skipping duplicate execution")
+        return
+        
+    # Mark job as running
+    _running_jobs.add(job_id)
+    
+    # Start job in background thread
     thread = threading.Thread(target=_run_in_thread, args=(job_id,), daemon=True)
     thread.start()
 
 
 def _run_in_thread(job_id: str) -> None:
     """Thread target: create a new event loop and run the async job."""
+    global _running_jobs
+    
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
@@ -55,6 +74,8 @@ def _run_in_thread(job_id: str) -> None:
     except Exception as exc:
         db.update_job(job_id, status="failed", error=str(exc))
     finally:
+        # Remove job from running set when complete
+        _running_jobs.discard(job_id)
         loop.close()
 
 
@@ -62,6 +83,7 @@ async def _execute_job(job_id: str) -> None:
     """Core async job execution."""
     job = db.get_job(job_id)
     if not job:
+        print(f"[engine] Job {job_id} not found in database, skipping execution")
         return
 
     config = json.loads(job["config"]) if isinstance(job["config"], str) else job["config"]
@@ -77,8 +99,8 @@ async def _execute_job(job_id: str) -> None:
     smtp_user = settings.get("smtp_user", os.getenv("SMTP_USER", ""))
     smtp_password = settings.get("smtp_password", os.getenv("SMTP_PASSWORD", ""))
 
-    # Build output directory
-    project_root = os.path.join(os.path.dirname(__file__), "..")
+    # Build output directory with absolute path to avoid relative path issues
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     output_dir = os.path.join(project_root, "output", job_id)
     os.makedirs(output_dir, exist_ok=True)
     db.update_job(job_id, output_dir=output_dir)

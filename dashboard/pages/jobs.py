@@ -4,10 +4,11 @@ import json
 import os
 import streamlit as st
 from dashboard import db
+from dashboard.scheduler import refresh_schedules
 
 
 def render():
-    st.title("📋 Jobs")
+    st.title("Jobs")
 
     # Refresh button
     col1, col2 = st.columns([4, 1])
@@ -102,7 +103,23 @@ def _render_job_list(jobs, prefix=""):
             if col1.button("🔄 Re-run", key=f"{uk}_rerun"):
                 _rerun_job(job)
             if col2.button("🗑️ Delete", key=f"{uk}_del"):
-                db.delete_job(job["id"])
+                # Delete the job from database
+                job_id = job["id"]
+                db.delete_job(job_id)
+                
+                # Also refresh schedules to ensure no scheduled tasks recreate this job
+                refresh_schedules()
+                
+                # Clean up output directory if it exists
+                output_dir = job.get("output_dir")
+                if output_dir and os.path.exists(output_dir):
+                    try:
+                        import shutil
+                        shutil.rmtree(output_dir, ignore_errors=True)
+                        print(f"[jobs] Deleted output directory for job {job_id}")
+                    except Exception as e:
+                        print(f"[jobs] Failed to delete output directory: {e}")
+                
                 st.rerun()
 
 

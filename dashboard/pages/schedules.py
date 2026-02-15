@@ -6,7 +6,7 @@ from dashboard import db
 
 
 def render():
-    st.title("⏰ Schedules")
+    st.title("Schedules")
     st.caption("Manage recurring crawl jobs")
 
     schedules = db.list_schedules()

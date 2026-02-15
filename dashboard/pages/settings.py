@@ -6,7 +6,7 @@ from dashboard import db
 
 
 def render():
-    st.title("⚙️ Settings")
+    st.title("Settings")
     st.caption("Configure API keys, SMTP credentials, and defaults")
 
     # Load current settings (fall back to env vars)

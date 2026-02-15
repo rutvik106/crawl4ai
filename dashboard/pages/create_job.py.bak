@@ -1,0 +1,1051 @@
+"""Job creation wizard — step-by-step crawl job setup."""
+
+import json
+import streamlit as st
+from dashboard import db
+from dashboard.engine import run_job_async
+from crawl4ai.output.job import generate_job_id
+
+
+def render():
+    st.title("Create New Job")
+
+    # Wizard steps
+    if "wizard_step" not in st.session_state:
+        st.session_state.wizard_step = 1
+
+    step = st.session_state.wizard_step
+
+    # Progress bar
+    st.progress(step / 5, text=f"Step {step} of 5")
+
+    if step == 1:
+        _step_source()
+    elif step == 2:
+        _step_schema()
+    elif step == 3:
+        _step_navigation()
+    elif step == 4:
+        _step_recipients()
+    elif step == 5:
+        _step_review()
+
+
+def _step_source():
+    st.subheader("1. Source URL")
+    st.caption("Enter the website URL you want to crawl")
+
+    st.markdown("""<div style="background: #f8fafc; border-radius: 10px; padding: 20px; margin-bottom: 20px; border: 1px solid #e2e8f0;">""", unsafe_allow_html=True)
+    url = st.text_input(
+        "URL",
+        value=st.session_state.get("job_url", ""),
+        placeholder="https://example.com/news",
+        help="Enter the full URL of the website you want to crawl"
+    )
+    name = st.text_input(
+        "Job Name",
+        value=st.session_state.get("job_name", ""),
+        placeholder="Pharma News Feed",
+        help="Give your crawl job a descriptive name"
+    )
+    st.markdown("""</div>""", unsafe_allow_html=True)
+
+    col1, col2 = st.columns([4, 1])
+    if col2.button("Next →", use_container_width=True, type="primary"):
+        if not url:
+            st.error("Please enter a URL")
+            return
+        if not name:
+            name = url.split("//")[-1].split("/")[0]
+        st.session_state.job_url = url
+        st.session_state.job_name = name
+        st.session_state.wizard_step = 2
+        st.rerun()
+
+
+def _step_schema():
+    st.subheader("2. What to Extract")
+    st.caption("Define the fields you want to extract from each article")
+
+    # Add modern card styling for schema options
+    st.markdown("""
+    <style>
+    .schema-container {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+        margin: 20px 0;
+    }
+    .schema-option {
+        padding: 20px;
+        border: 2px solid #e5e7eb;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: white;
+        position: relative;
+        overflow: hidden;
+    }
+    .schema-option:hover {
+        border-color: #3b82f6;
+        background: #f8fafc;
+        transform: translateY(-2px);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.08);
+    }
+    .schema-option.selected {
+        border-color: #3b82f6;
+        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+        box-shadow: 0 8px 16px rgba(59, 130, 246, 0.15);
+    }
+    .schema-option.selected::before {
+        content: '✓';
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        background: #3b82f6;
+        color: white;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: bold;
+    }
+    .schema-title {
+        font-weight: 600;
+        color: #1f2937;
+        margin-bottom: 8px;
+        font-size: 16px;
+    }
+    .schema-desc {
+        font-size: 14px;
+        color: #6b7280;
+        line-height: 1.5;
+    }
+    .schema-icon {
+        margin-bottom: 12px;
+        color: #3b82f6;
+        font-size: 24px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    if "schema_mode" not in st.session_state:
+        st.session_state.schema_mode = "Use preset: News Articles"
+
+    options = [
+        ("AI Auto-detect (recommended)", "Let AI automatically detect the best schema for your content", "🤖"),
+        ("Define manually", "Create custom fields and extraction rules yourself", "⚙️"),
+        ("Use preset: News Articles", "Optimized schema for news and article content", "📰")
+    ]
+    
+    st.markdown("""<div class="schema-container">""", unsafe_allow_html=True)
+    
+    for i, (title, desc, icon) in enumerate(options):
+        is_selected = st.session_state.schema_mode == title
+        selected_class = "selected" if is_selected else ""
+        
+        card_html = f"""
+        <div class="schema-option {selected_class}" id="schema-option-{i}">
+            <div class="schema-icon">{icon}</div>
+            <div class="schema-title">{title}</div>
+            <div class="schema-desc">{desc}</div>
+        </div>
+        """
+        
+        st.markdown(card_html, unsafe_allow_html=True)
+        
+        # Hidden button to handle the click
+        if st.button("Select", key=f"schema_{i}", help=f"Select {title}", label_visibility="collapsed"):
+            st.session_state.schema_mode = title
+            st.rerun()
+    
+    st.markdown("""</div>""", unsafe_allow_html=True)
+    
+    # Add JavaScript to make the entire card clickable
+    st.markdown("""
+    <script>
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.addedNodes.length) {
+                for (let i = 0; i < 3; i++) {
+                    const card = document.getElementById(`schema-option-${i}`);
+                    const button = document.querySelector(`button[data-testid="baseButton-secondary"][kind="secondary"][data-key="schema_${i}"]`);
+                    if (card && button) {
+                        card.addEventListener('click', () => {
+                            button.click();
+                        });
+                    }
+                }
+            }
+        });
+    });
+    
+    observer.observe(document.body, { childList: true, subtree: true });
+    </script>
+    """, unsafe_allow_html=True)
+
+    mode = st.session_state.schema_mode
+
+    if mode == "Use preset: News Articles":
+        st.session_state.job_schema = {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "The news headline"},
+                "source": {"type": "string", "description": "Publisher name"},
+                "category": {"type": "string", "description": "Category (e.g. pharma, business, tech)"},
+                "summary": {"type": "string", "description": "One-sentence summary"},
+            },
+            "required": ["title"],
+        }
+        st.json(st.session_state.job_schema)
+
+    elif mode == "AI Auto-detect (recommended)":
+        st.session_state.job_schema = {}
+        st.info("AI will analyze the page and auto-suggest fields during crawl.")
+
+    elif mode == "Define manually":
+        fields_json = st.text_area(
+            "Schema JSON",
+            value=json.dumps(st.session_state.get("job_schema", {}), indent=2),
+            height=200,
+        )
+        try:
+            st.session_state.job_schema = json.loads(fields_json) if fields_json.strip() else {}
+        except json.JSONDecodeError:
+            st.error("Invalid JSON")
+
+    custom_instruction = st.text_area(
+        "Custom extraction instruction (optional)",
+        value=st.session_state.get("job_instruction", ""),
+        placeholder="Extract only pharma industry news articles. Ignore promotional content...",
+    )
+    st.session_state.job_instruction = custom_instruction
+
+    col1, col2, col3 = st.columns([1, 3, 1])
+    if col1.button("← Back", use_container_width=True):
+        st.session_state.wizard_step = 1
+        st.rerun()
+    if col3.button("Next →", use_container_width=True, type="primary"):
+        st.session_state.wizard_step = 3
+        st.rerun()
+
+
+def _step_navigation():
+    st.subheader("3. How to Navigate")
+    st.caption("Configure how the crawler explores the page")
+    
+    # Add CSS for navigation cards
+    st.markdown("""
+    <style>
+    .nav-card-container {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .nav-card {
+        border: 2px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 16px;
+        background: white;
+        transition: all 0.2s ease;
+        cursor: pointer;
+        position: relative;
+        overflow: hidden;
+    }
+    .nav-card:hover {
+        border-color: #3b82f6;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    .nav-card.selected {
+        border-color: #3b82f6;
+        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    }
+    .nav-card.selected::after {
+        content: '✓';
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        background: #3b82f6;
+        color: white;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+    }
+    .nav-title {
+        font-weight: 600;
+        font-size: 15px;
+        margin-bottom: 6px;
+        color: #1f2937;
+    }
+    .nav-desc {
+        font-size: 13px;
+        color: #6b7280;
+    }
+    .nav-icon {
+        font-size: 20px;
+        margin-bottom: 8px;
+    }
+    .config-section {
+        background: #f8fafc;
+        border-radius: 10px;
+        padding: 16px;
+        margin-top: 16px;
+        border: 1px solid #e2e8f0;
+    }
+    .config-title {
+        font-weight: 600;
+        font-size: 14px;
+        margin-bottom: 12px;
+        color: #334155;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Store the navigation mode in session state if not already there
+    if "nav_mode" not in st.session_state:
+        st.session_state.nav_mode = "List + Details"
+    
+    # Navigation options
+    nav_options = [
+        ("Single page", "Stay on this page, extract data", "📄"),
+        ("List view", "Auto-scroll and paginate through lists", "📜"),
+        ("List + Details", "Follow links to inner article pages", "🔗")
+    ]
+    
+    # Display navigation cards
+    st.markdown("<div class='nav-card-container'>", unsafe_allow_html=True)
+    
+    for i, (title, desc, icon) in enumerate(nav_options):
+        is_selected = st.session_state.nav_mode == title
+        selected_class = "selected" if is_selected else ""
+        
+        card_html = f"""
+        <div class="nav-card {selected_class}" id="nav-card-{i}">
+            <div class="nav-icon">{icon}</div>
+            <div class="nav-title">{title}</div>
+            <div class="nav-desc">{desc}</div>
+        </div>
+        """
+        
+        st.markdown(card_html, unsafe_allow_html=True)
+        
+        # Hidden button to handle the click
+        if st.button("Select", key=f"nav_{i}", help=f"Select {title}", label_visibility="collapsed"):
+            st.session_state.nav_mode = title
+            st.rerun()
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Add JavaScript to make the entire card clickable
+    st.markdown("""
+    <script>
+    const navObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.addedNodes.length) {
+                for (let i = 0; i < 3; i++) {
+                    const card = document.getElementById(`nav-card-${i}`);
+                    const button = document.querySelector(`button[data-testid="baseButton-secondary"][kind="secondary"][data-key="nav_${i}"]`);
+                    if (card && button) {
+                        card.addEventListener('click', () => {
+                            button.click();
+                        });
+                    }
+                }
+            }
+        });
+    });
+    
+    navObserver.observe(document.body, { childList: true, subtree: true });
+    </script>
+    """, unsafe_allow_html=True)
+    
+    # Get the current navigation mode
+    nav_mode = st.session_state.nav_mode
+    
+    # Initialize or get the configuration
+    config = st.session_state.get("job_nav_config", {})
+    
+    # Configuration options based on selected mode
+    st.markdown("<div class='config-section'>", unsafe_allow_html=True)
+    st.markdown("<div class='config-title'>Configuration Options</div>", unsafe_allow_html=True)
+    
+    if nav_mode in ["List view", "List + Details"]:
+        col1, col2 = st.columns(2)
+        config["scroll"] = col1.checkbox("Auto-scroll page", value=config.get("scroll", True), 
+                                      help="Automatically scroll down the page to load more content")
+        config["max_scrolls"] = col2.number_input("Max scrolls", 1, 50, config.get("max_scrolls", 10),
+                                               help="Maximum number of times to scroll the page")
+        config["click_load_more"] = col1.checkbox("Click 'Load More' buttons", value=config.get("click_load_more", True),
+                                               help="Automatically click buttons that load more content")
+
+    if nav_mode == "List + Details":
+        config["follow_links"] = True
+        st.markdown("<hr style='margin: 12px 0; opacity: 0.2;'>", unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
+        config["max_inner_pages"] = col1.number_input("Max inner pages", 1, 50, config.get("max_inner_pages", 5),
+                                                  help="Maximum number of detail pages to visit")
+        config["link_filter"] = col2.text_input(
+            "Link URL filter (regex)",
+            value=config.get("link_filter", ""),
+            placeholder=r"/news/.*\d",
+            help="Optional regex pattern to filter which links to follow"
+        )
+    else:
+        config["follow_links"] = False
+
+    st.markdown("<hr style='margin: 12px 0; opacity: 0.2;'>", unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    config["smart_filter"] = col1.checkbox("Smart noise filter (AI)", value=config.get("smart_filter", True),
+                                        help="Use AI to filter out irrelevant content")
+    config["screenshots"] = col2.checkbox("Take screenshots", value=config.get("screenshots", True),
+                                       help="Capture screenshots of visited pages")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.session_state.job_nav_config = config
+
+    col1, col2, col3 = st.columns([1, 3, 1])
+    if col1.button("← Back", use_container_width=True):
+        st.session_state.wizard_step = 2
+        st.rerun()
+    if col3.button("Next →", use_container_width=True, type="primary"):
+        st.session_state.wizard_step = 4
+        st.rerun()
+
+
+def _step_recipients():
+    st.subheader("4. Email Recipients & Schedule")
+    st.caption("Configure who receives the results and when to run the job")
+    
+    # Add CSS for this step
+    st.markdown("""
+    <style>
+    .email-container {
+        background: #f8fafc;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 1px solid #e2e8f0;
+    }
+    .email-chip {
+        display: inline-block;
+        background: #e0f2fe;
+        border: 1px solid #bae6fd;
+        border-radius: 16px;
+        padding: 4px 12px;
+        margin: 4px;
+        font-size: 14px;
+        color: #0369a1;
+    }
+    .email-chip.invalid {
+        background: #fee2e2;
+        border-color: #fecaca;
+        color: #b91c1c;
+    }
+    .schedule-card {
+        background: white;
+        border-radius: 10px;
+        padding: 16px;
+        margin-top: 16px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .schedule-title {
+        font-weight: 600;
+        font-size: 15px;
+        margin-bottom: 12px;
+        color: #334155;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Email recipients section
+    st.markdown("<div class='email-container'>", unsafe_allow_html=True)
+    
+    recipients = st.text_input(
+        "Email recipients (comma-separated)",
+        value=st.session_state.get("job_recipients", ""),
+        placeholder="alice@company.com, bob@company.com",
+        help="Enter email addresses separated by commas"
+    )
+    
+    # Email validation
+    import re
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    
+    # Process and validate emails
+    if recipients:
+        emails = [email.strip() for email in recipients.split(',')]
+        valid_emails = []
+        invalid_emails = []
+        
+        for email in emails:
+            if email and re.match(email_pattern, email):
+                valid_emails.append(email)
+            elif email:  # Only add non-empty strings to invalid
+                invalid_emails.append(email)
+        
+        # Display email chips
+        if valid_emails or invalid_emails:
+            st.markdown("<div style='margin-top: 8px;'>", unsafe_allow_html=True)
+            
+            for email in valid_emails:
+                st.markdown(f"<span class='email-chip'>{email}</span>", unsafe_allow_html=True)
+                
+            for email in invalid_emails:
+                st.markdown(f"<span class='email-chip invalid'>{email}</span>", unsafe_allow_html=True)
+                
+            st.markdown("</div>", unsafe_allow_html=True)
+        
+        if invalid_emails:
+            st.warning("Some email addresses appear to be invalid. Please check and correct them.")
+    
+    st.session_state.job_recipients = recipients
+    
+    email_subject = st.text_input(
+        "Email subject (optional)",
+        value=st.session_state.get("job_email_subject", ""),
+        placeholder=f"Crawl4AI: {st.session_state.get('job_name', 'News Feed')}",
+        help="Subject line for the email notification"
+    )
+    st.session_state.job_email_subject = email_subject
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Schedule section with improved UI
+    st.markdown("<div class='schedule-card'>", unsafe_allow_html=True)
+    st.markdown("<div class='schedule-title'>When to Run</div>", unsafe_allow_html=True)
+    
+    # Add CSS for run mode selection
+    st.markdown("""
+    <style>
+    .run-mode-container {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+    .run-mode-option {
+        flex: 1;
+        border: 2px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 12px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background: white;
+    }
+    .run-mode-option:hover {
+        border-color: #3b82f6;
+        transform: translateY(-2px);
+    }
+    .run-mode-option.selected {
+        border-color: #3b82f6;
+        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    }
+    .run-mode-title {
+        font-weight: 600;
+        font-size: 14px;
+        margin-bottom: 4px;
+    }
+    .run-mode-icon {
+        font-size: 20px;
+        margin-bottom: 8px;
+    }
+    .run-mode-desc {
+        font-size: 12px;
+        color: #6b7280;
+    }
+    .cron-display {
+        background: #f1f5f9;
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-family: monospace;
+        font-size: 13px;
+        color: #334155;
+        margin-top: 12px;
+        border: 1px solid #e2e8f0;
+    }
+    .day-chip {
+        display: inline-block;
+        background: #e0f2fe;
+        border: 1px solid #bae6fd;
+        border-radius: 16px;
+        padding: 4px 12px;
+        margin: 4px;
+        font-size: 13px;
+        color: #0369a1;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Store run mode in session state if not already there
+    if "job_run_mode" not in st.session_state:
+        st.session_state.job_run_mode = "Run once (now)"
+    
+    # Run mode options
+    run_options = [
+        ("Run once (now)", "Execute job immediately", "⚡"),
+        ("Schedule recurring", "Run on a regular schedule", "🔄")
+    ]
+    
+    # Display run mode options
+    st.markdown("<div class='run-mode-container'>", unsafe_allow_html=True)
+    
+    for i, (title, desc, icon) in enumerate(run_options):
+        is_selected = st.session_state.job_run_mode == title
+        selected_class = "selected" if is_selected else ""
+        
+        card_html = f"""
+        <div class="run-mode-option {selected_class}" id="run-mode-{i}">
+            <div class="run-mode-icon">{icon}</div>
+            <div class="run-mode-title">{title}</div>
+            <div class="run-mode-desc">{desc}</div>
+        </div>
+        """
+        
+        st.markdown(card_html, unsafe_allow_html=True)
+        
+        # Hidden button to handle the click
+        if st.button("Select", key=f"run_mode_{i}", help=f"Select {title}", label_visibility="collapsed"):
+            st.session_state.job_run_mode = title
+            st.rerun()
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Add JavaScript to make the entire card clickable
+    st.markdown("""
+    <script>
+    const runModeObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.addedNodes.length) {
+                for (let i = 0; i < 2; i++) {
+                    const card = document.getElementById(`run-mode-${i}`);
+                    const button = document.querySelector(`button[data-testid="baseButton-secondary"][kind="secondary"][data-key="run_mode_${i}"]`);
+                    if (card && button) {
+                        card.addEventListener('click', () => {
+                            button.click();
+                        });
+                    }
+                }
+            }
+        });
+    });
+    
+    runModeObserver.observe(document.body, { childList: true, subtree: true });
+    </script>
+    """, unsafe_allow_html=True)
+    
+    run_mode = st.session_state.job_run_mode
+    
+    if run_mode == "Schedule recurring":
+        st.markdown("<hr style='margin: 16px 0; opacity: 0.2;'>", unsafe_allow_html=True)
+        
+        # Schedule type tabs
+        sched_type = st.radio(
+            "Schedule type",
+            ["Every X hours / minutes", "Specific days & time"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+        
+        st.markdown("<div style='background: #f8fafc; border-radius: 8px; padding: 16px; margin-top: 12px;'>", unsafe_allow_html=True)
+        
+        if sched_type == "Every X hours / minutes":
+            st.markdown("<div style='font-weight: 600; margin-bottom: 12px;'>Interval Schedule</div>", unsafe_allow_html=True)
+            
+            col1, col2 = st.columns([3, 2])
+            interval_options = [
+                "Every 5 minutes",
+                "Every 30 minutes",
+                "Every 1 hour",
+                "Every 2 hours",
+                "Every 4 hours",
+                "Every 6 hours",
+                "Every 8 hours",
+                "Every 12 hours",
+            ]
+            interval = col1.selectbox(
+                "Interval", 
+                interval_options, 
+                index=1,
+                help="How frequently the job should run"
+            )
+            
+            interval_cron = {
+                "Every 5 minutes": "*/5 * * * *",
+                "Every 30 minutes": "*/30 * * * *",
+                "Every 1 hour": "0 * * * *",
+                "Every 2 hours": "0 */2 * * *",
+                "Every 4 hours": "0 */4 * * *",
+                "Every 6 hours": "0 */6 * * *",
+                "Every 8 hours": "0 */8 * * *",
+                "Every 12 hours": "0 */12 * * *",
+            }
+            cron = interval_cron[interval]
+            
+            st.markdown(f"<div class='cron-display'>{cron}</div>", unsafe_allow_html=True)
+
+        else:
+            st.markdown("<div style='font-weight: 600; margin-bottom: 12px;'>Day & Time Schedule</div>", unsafe_allow_html=True)
+            
+            # Day selector
+            all_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            selected_days = st.multiselect(
+                "Run on days",
+                all_days,
+                default=st.session_state.get("job_sched_days", all_days),
+                help="Select which days of the week to run the job"
+            )
+            st.session_state.job_sched_days = selected_days
+            
+            # Display selected days as chips
+            if selected_days:
+                st.markdown("<div style='margin: 8px 0;'>", unsafe_allow_html=True)
+                for day in selected_days:
+                    st.markdown(f"<span class='day-chip'>{day}</span>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            # Time selector with 30-min intervals
+            time_slots = []
+            for h in range(24):
+                for m in (0, 30):
+                    hour_12 = h % 12 or 12
+                    ampm = "AM" if h < 12 else "PM"
+                    time_slots.append(f"{hour_12}:{m:02d} {ampm}")
+
+            selected_time = st.selectbox(
+                "Run at time",
+                time_slots,
+                index=time_slots.index(st.session_state.get("job_sched_time", "9:00 AM")),
+                help="Select the time to run the job"
+            )
+            st.session_state.job_sched_time = selected_time
+
+            # Convert to cron
+            day_map = {"Monday": 1, "Tuesday": 2, "Wednesday": 3, "Thursday": 4, "Friday": 5, "Saturday": 6, "Sunday": 0}
+            if selected_days and len(selected_days) == 7:
+                cron_days = "*"
+            elif selected_days:
+                cron_days = ",".join(str(day_map[d]) for d in selected_days)
+            else:
+                cron_days = "*"
+
+            # Parse time
+            import re as _re
+            _m = _re.match(r"(\d+):(\d+)\s*(AM|PM)", selected_time)
+            if _m:
+                hr = int(_m.group(1))
+                mn = int(_m.group(2))
+                ap = _m.group(3)
+                if ap == "PM" and hr != 12:
+                    hr += 12
+                elif ap == "AM" and hr == 12:
+                    hr = 0
+            else:
+                hr, mn = 9, 0
+
+            cron = f"{mn} {hr} * * {cron_days}"
+            st.markdown("<div style='margin-top: 12px; font-weight: 500;'>Cron Expression:</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='cron-display'>{cron}</div>", unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Store cron in session state if in scheduling mode
+    if run_mode == "Schedule recurring":
+        st.session_state.job_cron = cron
+
+    col1, col2, col3 = st.columns([1, 3, 1])
+    if col1.button("← Back", use_container_width=True):
+        st.session_state.wizard_step = 3
+        st.rerun()
+    if col3.button("Next →", use_container_width=True, type="primary"):
+        st.session_state.wizard_step = 5
+        st.rerun()
+
+
+def _step_review():
+    st.subheader("5. Review & Create")
+    st.caption("Review your job configuration before creating it")
+    
+    # Add CSS for review page
+    st.markdown("""
+    <style>
+    .review-container {
+        margin-top: 20px;
+    }
+    .review-header {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+        padding: 16px 20px;
+        border-radius: 12px 12px 0 0;
+        font-size: 18px;
+        font-weight: 600;
+    }
+    .review-body {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-top: none;
+        border-radius: 0 0 12px 12px;
+        padding: 20px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+    .review-section {
+        margin-bottom: 16px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid #f1f5f9;
+    }
+    .review-section:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 0;
+    }
+    .review-label {
+        font-size: 13px;
+        color: #64748b;
+        margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .review-value {
+        font-size: 15px;
+        color: #334155;
+        font-weight: 500;
+    }
+    .review-value-code {
+        font-family: monospace;
+        background: #f8fafc;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 13px;
+        color: #334155;
+        border: 1px solid #e2e8f0;
+    }
+    .review-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 16px;
+        font-size: 12px;
+        font-weight: 500;
+        margin-right: 6px;
+    }
+    .badge-blue {
+        background: #e0f2fe;
+        color: #0369a1;
+        border: 1px solid #bae6fd;
+    }
+    .badge-green {
+        background: #dcfce7;
+        color: #166534;
+        border: 1px solid #bbf7d0;
+    }
+    .badge-amber {
+        background: #fef3c7;
+        color: #92400e;
+        border: 1px solid #fde68a;
+    }
+    .badge-purple {
+        background: #f3e8ff;
+        color: #7e22ce;
+        border: 1px solid #e9d5ff;
+    }
+    .badge-gray {
+        background: #f1f5f9;
+        color: #475569;
+        border: 1px solid #e2e8f0;
+    }
+    .create-button {
+        margin-top: 24px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Get all job configuration data
+    name = st.session_state.get("job_name", "Untitled")
+    url = st.session_state.get("job_url", "")
+    schema_mode = st.session_state.get("schema_mode", "AI Auto-detect (recommended)")
+    nav = st.session_state.get("job_nav_config", {})
+    nav_mode = st.session_state.get("nav_mode", "List + Details")
+    recipients = st.session_state.get("job_recipients", "")
+    email_subject = st.session_state.get("job_email_subject", "")
+    run_mode = st.session_state.get("job_run_mode", "Run once (now)")
+    
+    # Format recipients for display
+    if recipients:
+        recipient_list = [email.strip() for email in recipients.split(',') if email.strip()]
+        recipient_display = ", ".join(recipient_list)
+    else:
+        recipient_display = "None"
+    
+    # Review container
+    st.markdown("<div class='review-container'>", unsafe_allow_html=True)
+    st.markdown(f"<div class='review-header'>{name}</div>", unsafe_allow_html=True)
+    st.markdown("<div class='review-body'>", unsafe_allow_html=True)
+    
+    # Source section
+    st.markdown("<div class='review-section'>", unsafe_allow_html=True)
+    st.markdown("<div class='review-label'>Source URL</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='review-value review-value-code'>{url}</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Extraction section
+    st.markdown("<div class='review-section'>", unsafe_allow_html=True)
+    st.markdown("<div class='review-label'>Data Extraction</div>", unsafe_allow_html=True)
+    
+    # Display schema mode with appropriate icon
+    schema_icon = {
+        "AI Auto-detect (recommended)": "🤖",
+        "Define manually": "⚙️",
+        "Use preset: News Articles": "📰"
+    }.get(schema_mode, "📋")
+    
+    st.markdown(f"<div class='review-value'>{schema_icon} {schema_mode}</div>", unsafe_allow_html=True)
+    
+    # If using preset, show the schema fields
+    if schema_mode == "Use preset: News Articles":
+        schema = st.session_state.get("job_schema", {})
+        if schema and "properties" in schema:
+            fields = list(schema["properties"].keys())
+            st.markdown("<div style='margin-top: 8px;'>", unsafe_allow_html=True)
+            for field in fields:
+                st.markdown(f"<span class='review-badge badge-blue'>{field}</span>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Show custom instruction if any
+    instruction = st.session_state.get("job_instruction", "")
+    if instruction:
+        st.markdown("<div style='margin-top: 12px;'>", unsafe_allow_html=True)
+        st.markdown("<div class='review-label'>Custom Instruction</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='review-value' style='font-style: italic; font-size: 14px;'>"{instruction}"</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Navigation section
+    st.markdown("<div class='review-section'>", unsafe_allow_html=True)
+    st.markdown("<div class='review-label'>Navigation Strategy</div>", unsafe_allow_html=True)
+    
+    # Navigation mode icon
+    nav_icon = {
+        "Single page": "📄",
+        "List view": "📜",
+        "List + Details": "🔗"
+    }.get(nav_mode, "🔍")
+    
+    st.markdown(f"<div class='review-value'>{nav_icon} {nav_mode}</div>", unsafe_allow_html=True)
+    
+    # Navigation settings
+    st.markdown("<div style='margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px;'>", unsafe_allow_html=True)
+    
+    if nav.get("scroll", False):
+        st.markdown(f"<span class='review-badge badge-green'>Auto-scroll ({nav.get('max_scrolls', 0)} max)</span>", unsafe_allow_html=True)
+    
+    if nav.get("click_load_more", False):
+        st.markdown(f"<span class='review-badge badge-green'>Click 'Load More'</span>", unsafe_allow_html=True)
+    
+    if nav.get("follow_links", False):
+        st.markdown(f"<span class='review-badge badge-amber'>Follow links ({nav.get('max_inner_pages', 0)} pages)</span>", unsafe_allow_html=True)
+    
+    if nav.get("smart_filter", False):
+        st.markdown(f"<span class='review-badge badge-purple'>Smart AI filter</span>", unsafe_allow_html=True)
+    
+    if nav.get("screenshots", False):
+        st.markdown(f"<span class='review-badge badge-gray'>Take screenshots</span>", unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Recipients section
+    st.markdown("<div class='review-section'>", unsafe_allow_html=True)
+    st.markdown("<div class='review-label'>Recipients</div>", unsafe_allow_html=True)
+    
+    if recipient_display != "None":
+        st.markdown(f"<div class='review-value'>{recipient_display}</div>", unsafe_allow_html=True)
+        if email_subject:
+            st.markdown(f"<div style='margin-top: 8px; font-size: 14px; color: #64748b;'>Subject: {email_subject}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='review-value'>No recipients specified</div>", unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Schedule section
+    st.markdown("<div class='review-section'>", unsafe_allow_html=True)
+    st.markdown("<div class='review-label'>Schedule</div>", unsafe_allow_html=True)
+    
+    # Run mode icon
+    run_icon = "⚡" if run_mode == "Run once (now)" else "🔄"
+    st.markdown(f"<div class='review-value'>{run_icon} {run_mode}</div>", unsafe_allow_html=True)
+    
+    # Show cron if scheduled
+    if run_mode == "Schedule recurring":
+        cron = st.session_state.get("job_cron", "")
+        if cron:
+            st.markdown("<div style='margin-top: 8px;'>", unsafe_allow_html=True)
+            st.markdown(f"<span class='review-value-code'>{cron}</span>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Close review container
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    if col1.button("← Back", use_container_width=True):
+        st.session_state.wizard_step = 4
+        st.rerun()
+
+    if col3.button("🚀 Create & Run", use_container_width=True, type="primary"):
+        _create_and_run()
+
+
+def _create_and_run():
+    job_id = generate_job_id()
+    name = st.session_state.get("job_name", "Untitled")
+    url = st.session_state.get("job_url", "")
+    nav = st.session_state.get("job_nav_config", {})
+
+    config = {
+        **nav,
+        "schema_fields": st.session_state.get("job_schema", {}),
+        "extraction_instruction": st.session_state.get("job_instruction", ""),
+        "recipients": st.session_state.get("job_recipients", ""),
+        "email_subject": st.session_state.get("job_email_subject", ""),
+    }
+
+    # Create job record
+    db.create_job(job_id=job_id, name=name, url=url, config=config)
+
+    # If scheduled, create schedule too
+    run_mode = st.session_state.get("job_run_mode", "Run once (now)")
+    if run_mode == "Schedule recurring":
+        db.create_schedule(
+            job_name=name,
+            url=url,
+            config=config,
+            cron=st.session_state.get("job_cron", "0 9 * * *"),
+            recipients=config.get("recipients", ""),
+        )
+
+    # Launch job in background
+    run_job_async(job_id)
+
+    # Reset wizard
+    for key in list(st.session_state.keys()):
+        if key.startswith("job_") or key == "wizard_step":
+            del st.session_state[key]
+
+    # Navigate to Jobs page
+    st.session_state["nav_page"] = "📋 Jobs"
+    st.rerun()

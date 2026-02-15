@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.jobstores.memory import MemoryJobStore
 
 from dashboard import db
 from dashboard.engine import run_job_async
@@ -20,7 +22,16 @@ def get_scheduler() -> BackgroundScheduler:
     """Get or create the singleton scheduler instance."""
     global _scheduler
     if _scheduler is None:
-        _scheduler = BackgroundScheduler()
+        # Use a persistent job store to prevent duplicate jobs
+        _scheduler = BackgroundScheduler(
+            jobstores={
+                'default': MemoryJobStore()
+            },
+            job_defaults={
+                'coalesce': True,  # Combine multiple pending executions
+                'max_instances': 1  # Only allow one instance of each job
+            }
+        )
         _scheduler.start()
         _load_schedules()
     return _scheduler
@@ -71,7 +82,29 @@ def _add_schedule_job(sched: dict) -> None:
 
 def _execute_scheduled_job(sched: dict) -> None:
     """Called by APScheduler when a cron trigger fires."""
-    config = json.loads(sched["config"]) if isinstance(sched["config"], str) else sched["config"]
+    # Check if schedule still exists and is enabled
+    schedule_id = sched.get("id")
+    current_schedule = None
+    
+    try:
+        # Get all schedules and find the one with matching ID
+        all_schedules = db.list_schedules()
+        for s in all_schedules:
+            if s.get("id") == schedule_id:
+                current_schedule = s
+                break
+                
+        # Skip execution if schedule was deleted or disabled
+        if not current_schedule or not current_schedule.get("enabled"):
+            print(f"[scheduler] Schedule {schedule_id} was deleted or disabled, skipping execution")
+            return
+            
+        # Use the most up-to-date config
+        config = json.loads(current_schedule["config"]) if isinstance(current_schedule["config"], str) else current_schedule["config"]
+    except Exception as e:
+        print(f"[scheduler] Error checking schedule {schedule_id}: {e}")
+        # Fall back to the original config if there was an error
+        config = json.loads(sched["config"]) if isinstance(sched["config"], str) else sched["config"]
 
     # Create a new job entry
     job_id = generate_job_id()
@@ -106,6 +139,8 @@ def refresh_schedules() -> None:
 
     # Re-load
     _load_schedules()
+    
+    print(f"[scheduler] Refreshed schedules, active jobs: {len(scheduler.get_jobs())}")
 
 
 def shutdown() -> None:
@@ -114,3 +149,4 @@ def shutdown() -> None:
     if _scheduler:
         _scheduler.shutdown(wait=False)
         _scheduler = None
+        print("[scheduler] Scheduler shutdown complete")

@@ -37,3 +37,5 @@ if __name__ == "__main__":
 ## Documentation
 
 See the [Getting Started tutorial](docs/tutorials/getting-started.md) for a full walkthrough.
+
+cd /Users/rutvikmehta/PycharmProjects/crawl4ai && streamlit run dashboard/app.py --server.port 8501 &

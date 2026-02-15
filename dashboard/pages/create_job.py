@@ -8,7 +8,7 @@ from crawl4ai.output.job import generate_job_id
 
 
 def render():
-    st.title("➕ Create New Job")
+    st.title("Create New Job")
 
     # Wizard steps
     if "wizard_step" not in st.session_state:
@@ -38,12 +38,12 @@ def _step_source():
     url = st.text_input(
         "URL",
         value=st.session_state.get("job_url", ""),
-        placeholder="https://pharma.economictimes.indiatimes.com/news",
+        placeholder="https://example.comnews",
     )
     name = st.text_input(
         "Job Name",
         value=st.session_state.get("job_name", ""),
-        placeholder="ET Pharma News Feed",
+        placeholder="Pharma News Feed",
     )
 
     col1, col2 = st.columns([4, 1])
@@ -198,6 +198,7 @@ def _step_recipients():
         if sched_type == "Every X hours / minutes":
             col1, col2 = st.columns(2)
             interval_options = [
+                "Every 5 minutes",
                 "Every 30 minutes",
                 "Every 1 hour",
                 "Every 2 hours",
@@ -208,6 +209,7 @@ def _step_recipients():
             ]
             interval = col1.selectbox("Interval", interval_options, index=1)
             interval_cron = {
+                "Every 5 minutes": "*/5 * * * *",
                 "Every 30 minutes": "*/30 * * * *",
                 "Every 1 hour": "0 * * * *",
                 "Every 2 hours": "0 */2 * * *",
