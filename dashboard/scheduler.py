@@ -40,9 +40,10 @@ def get_scheduler() -> BackgroundScheduler:
 def _load_schedules() -> None:
     """Load all enabled schedules from DB and register them."""
     schedules = db.list_schedules()
-    for sched in schedules:
-        if sched.get("enabled"):
-            _add_schedule_job(sched)
+    enabled = [s for s in schedules if s.get("enabled")]
+    print(f"[scheduler] Found {len(schedules)} schedules ({len(enabled)} enabled)")
+    for sched in enabled:
+        _add_schedule_job(sched)
 
 
 def _add_schedule_job(sched: dict) -> None:
@@ -76,12 +77,14 @@ def _add_schedule_job(sched: dict) -> None:
                 sched["id"],
                 next_run=next_run.next_run_time.isoformat(),
             )
+            print(f"[scheduler] Registered '{sched['job_name']}' cron='{sched['cron']}' next_run={next_run.next_run_time}")
     except Exception as e:
-        print(f"Failed to schedule job {sched['job_name']}: {e}")
+        print(f"[scheduler] Failed to schedule job {sched['job_name']}: {e}")
 
 
 def _execute_scheduled_job(sched: dict) -> None:
     """Called by APScheduler when a cron trigger fires."""
+    print(f"[scheduler] Cron fired for '{sched.get('job_name')}' (schedule_id={sched.get('id')})")
     # Check if schedule still exists and is enabled
     schedule_id = sched.get("id")
     current_schedule = None
