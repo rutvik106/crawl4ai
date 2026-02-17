@@ -247,9 +247,25 @@ class EmailOutput(OutputBackend):
         # Split comma-separated recipients into a list
         recipients = [email.strip() for email in self.to.split(",") if email.strip()]
 
-        with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-            if self.use_tls:
-                server.starttls()
+        # Try STARTTLS first, then fall back to SMTP_SSL (port 465)
+        try:
+            print(f"[email] Trying STARTTLS on {self.smtp_host}:{self.smtp_port}...", flush=True)
+            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as server:
+                if self.use_tls:
+                    server.starttls()
+                if self.smtp_user and self.smtp_password:
+                    server.login(self.smtp_user, self.smtp_password)
+                server.sendmail(self.from_addr, recipients, msg.as_string())
+                print("[email] Sent via STARTTLS", flush=True)
+                return
+        except (OSError, smtplib.SMTPException) as e:
+            print(f"[email] STARTTLS failed: {e}", flush=True)
+
+        # Fallback: SMTP_SSL on port 465
+        ssl_port = 465
+        print(f"[email] Trying SMTP_SSL on {self.smtp_host}:{ssl_port}...", flush=True)
+        with smtplib.SMTP_SSL(self.smtp_host, ssl_port, timeout=15) as server:
             if self.smtp_user and self.smtp_password:
                 server.login(self.smtp_user, self.smtp_password)
             server.sendmail(self.from_addr, recipients, msg.as_string())
+            print("[email] Sent via SMTP_SSL", flush=True)

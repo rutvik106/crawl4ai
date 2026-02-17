@@ -54,5 +54,14 @@ class OutputManager:
             b.save_many(results, metadata)
 
     def finalize(self) -> None:
+        errors = []
         for b in self.backends:
-            b.finalize()
+            try:
+                b.finalize()
+            except Exception as e:
+                backend_name = type(b).__name__
+                print(f"[output] {backend_name}.finalize() failed: {e}", flush=True)
+                errors.append((backend_name, e))
+        if errors:
+            names = ", ".join(n for n, _ in errors)
+            print(f"[output] WARNING: {len(errors)} backend(s) failed: {names}", flush=True)
