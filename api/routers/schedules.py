@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -79,8 +80,14 @@ async def create_schedule(request: ScheduleCreateRequest) -> ScheduleResponse:
     if not request.enabled:
         db.update_schedule(schedule_id, enabled=0)
     
-    # Refresh scheduler
-    refresh_schedules()
+    # Refresh scheduler in background thread to avoid blocking API response
+    def _refresh():
+        try:
+            refresh_schedules()
+        except Exception as e:
+            print(f"[scheduler] Background refresh failed: {e}")
+    
+    threading.Thread(target=_refresh, daemon=True).start()
     
     # Get the created schedule
     schedules = db.list_schedules()
@@ -108,8 +115,14 @@ async def toggle_schedule(schedule_id: int, request: ScheduleToggleRequest) -> S
     # Update enabled status
     db.update_schedule(schedule_id, enabled=1 if request.enabled else 0)
     
-    # Refresh scheduler
-    refresh_schedules()
+    # Refresh scheduler in background thread to avoid blocking API response
+    def _refresh():
+        try:
+            refresh_schedules()
+        except Exception as e:
+            print(f"[scheduler] Background refresh failed: {e}")
+    
+    threading.Thread(target=_refresh, daemon=True).start()
     
     # Return updated schedule
     schedules = db.list_schedules()
@@ -167,6 +180,14 @@ async def delete_schedule(schedule_id: int) -> SuccessResponse:
         raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
     
     db.delete_schedule(schedule_id)
-    refresh_schedules()
+    
+    # Refresh scheduler in background thread to avoid blocking API response
+    def _refresh():
+        try:
+            refresh_schedules()
+        except Exception as e:
+            print(f"[scheduler] Background refresh failed: {e}")
+    
+    threading.Thread(target=_refresh, daemon=True).start()
     
     return SuccessResponse(message=f"Schedule {schedule_id} deleted successfully")
