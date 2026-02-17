@@ -251,6 +251,10 @@ async def smart_extract(
 
     print(f"[smart_extract] content length: {len(all_content)} chars")
 
+    if not all_content or not all_content.strip():
+        print("[smart_extract] Empty content, skipping LLM extraction")
+        return "[]"
+
     # Override instruction for smart filtering
     if instruction:
         original_instruction = strategy.instruction
