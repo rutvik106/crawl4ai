@@ -4,16 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="27227340-3a1d-4c23-954b-135dcd9cf422" name="Changes" comment="Introduce improvements to output and dashboard functionalities, including robust error handling, enhanced email notifications, and refinements to the Streamlit layout.">
-      <change beforePath="$PROJECT_DIR$/New-Logo-Impeerical.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/dashboard/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/app.py" afterDir="false" />
+    <list default="true" id="27227340-3a1d-4c23-954b-135dcd9cf422" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/dashboard/crawl4ai_dashboard.db" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/crawl4ai_dashboard.db" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dashboard/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/engine.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dashboard/pages/create_job.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/pages/create_job.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dashboard/pages/dashboard.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/pages/dashboard.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dashboard/pages/jobs.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/pages/jobs.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dashboard/pages/schedules.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/pages/schedules.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dashboard/pages/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/dashboard/pages/settings.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -77,6 +70,13 @@
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
+  <component name="RecapSpentCounter">
+    <option name="endsOfQuotaMs" value="1773313222089" />
+    <option name="spentUsd" value="0.0619775" />
+  </component>
+  <component name="RecapUselessUpdatesCounter">
+    <option name="suspendCountdown" value="9" />
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -94,7 +94,7 @@
       <updated>1770811483533</updated>
       <workItem from="1770811491005" duration="3415000" />
       <workItem from="1771064905157" duration="78000" />
-      <workItem from="1771069720936" duration="308000" />
+      <workItem from="1771069720936" duration="1995000" />
     </task>
     <task id="LOCAL-00001" summary="Introduce improvements to output and dashboard functionalities, including robust error handling, enhanced email notifications, and refinements to the Streamlit layout.">
       <option name="closed" value="true" />
@@ -104,7 +104,15 @@
       <option name="project" value="LOCAL" />
       <updated>1771069823442</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="Rebrand Impeerical 4 AI to Crawl4AI and update UI with new icons and layout refinements.">
+      <option name="closed" value="true" />
+      <created>1771070151545</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1771070151545</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -112,6 +120,7 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Introduce improvements to output and dashboard functionalities, including robust error handling, enhanced email notifications, and refinements to the Streamlit layout." />
-    <option name="LAST_COMMIT_MESSAGE" value="Introduce improvements to output and dashboard functionalities, including robust error handling, enhanced email notifications, and refinements to the Streamlit layout." />
+    <MESSAGE value="Rebrand Impeerical 4 AI to Crawl4AI and update UI with new icons and layout refinements." />
+    <option name="LAST_COMMIT_MESSAGE" value="Rebrand Impeerical 4 AI to Crawl4AI and update UI with new icons and layout refinements." />
   </component>
 </project>

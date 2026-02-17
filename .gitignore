@@ -1,2 +1,7 @@
-output/
 .env
+.idea
+crawl4ai/extraction/__pycache__
+crawl4ai/__pycache__
+dashboard/__pycache__
+dashboard/pages/__pycache__
+output

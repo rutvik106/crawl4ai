@@ -5,17 +5,19 @@ from dashboard import db
 from datetime import datetime
 
 
-def format_date(date_str):
-    """Format date string to human readable format."""
-    if not date_str:
+def format_date(date_val):
+    """Format date to human readable format."""
+    if not date_val:
         return ""
     try:
-        # Parse ISO format date
-        dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        # Handle datetime object directly (PostgreSQL)
+        if isinstance(date_val, datetime):
+            return date_val.strftime("%b %d, %Y, %I:%M %p")
+        # Handle string format (SQLite fallback)
+        dt = datetime.fromisoformat(date_val.replace('Z', '+00:00'))
         return dt.strftime("%b %d, %Y, %I:%M %p")
-    except Exception as e:
-        # Fallback to original format if parsing fails
-        return f"Error: {date_str[:16]}"
+    except Exception:
+        return str(date_val)[:16]
 
 
 def render():

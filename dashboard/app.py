@@ -16,6 +16,71 @@ from dashboard.scheduler import get_scheduler
 # Start background scheduler (singleton, only starts once)
 get_scheduler()
 
+# ============================================
+# AUTHENTICATION
+# ============================================
+DASHBOARD_USERNAME = os.getenv("DASHBOARD_USERNAME", "admin")
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "admin")
+
+# Initialize auth state
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+def login():
+    username = st.session_state.get("login_username", "").strip()
+    password = st.session_state.get("login_password", "")
+    if username == DASHBOARD_USERNAME and password == DASHBOARD_PASSWORD:
+        st.session_state["authenticated"] = True
+        st.session_state["auth_error"] = None
+    else:
+        st.session_state["auth_error"] = "Invalid username or password"
+
+def logout():
+    st.session_state["authenticated"] = False
+    st.session_state["login_username"] = ""
+    st.session_state["login_password"] = ""
+
+# Show login form if not authenticated
+if not st.session_state["authenticated"]:
+    st.set_page_config(page_title="Impeerical 4 AI - Login", page_icon="🔒")
+    
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        
+        # Load and display logo if available
+        logo_path = Path(_project_root) / "New-Logo-Impeerical.jpg"
+        if logo_path.exists():
+            st.markdown(f"""
+            <div style="display: flex; justify-content: center; margin-bottom: 1rem;">
+                <img src="data:image/jpeg;base64,{base64.b64encode(open(logo_path, "rb").read()).decode()}" 
+                     width="150" style="border-radius: 12px;">
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with st.form("login_form", clear_on_submit=False):
+            st.text_input("Username", key="login_username")
+            st.text_input("Password", type="password", key="login_password")
+            submitted = st.form_submit_button("Sign In", type="primary", use_container_width=True)
+            if submitted:
+                login()
+        
+        if st.session_state.get("auth_error"):
+            st.error(st.session_state["auth_error"])
+    
+    # Hide default Streamlit multipage navigation on login page
+    st.markdown("""
+    <style>
+        [data-testid="stSidebarNav"] { display: none !important; }
+        section[data-testid="stSidebar"] { display: none !important; }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.stop()
+
+# ============================================
+# MAIN APP (authenticated)
+# ============================================
+
 st.set_page_config(
     page_title="Impeerical 4 AI",
     page_icon="",
@@ -140,6 +205,11 @@ with st.sidebar:
             }}
         </script>
         """, unsafe_allow_html=True)
+    
+    # Logout section at bottom of sidebar
+    st.divider()
+    st.markdown(f"<p style='color: #6b7280; font-size: 0.875rem;'>👤 <b>{DASHBOARD_USERNAME}</b></p>", unsafe_allow_html=True)
+    st.button("Logout", on_click=logout, use_container_width=True)
 
 # Route to pages
 page = st.session_state.get("current_page", "Dashboard")
