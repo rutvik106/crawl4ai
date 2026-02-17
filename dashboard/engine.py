@@ -43,6 +43,11 @@ from crawl4ai.output.base import OutputManager
 from . import db
 
 
+def _log(msg: str) -> None:
+    """Print with flush to ensure Railway sees logs immediately."""
+    print(msg, flush=True)
+
+
 def run_job_async(job_id: str) -> None:
     """Run a crawl job in a background thread with its own event loop.
     
@@ -71,8 +76,14 @@ def _run_in_thread(job_id: str) -> None:
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(_execute_job(job_id))
+        _log(f"[engine] Job {job_id} thread completed successfully")
     except Exception as exc:
-        db.update_job(job_id, status="failed", error=str(exc))
+        _log(f"[engine] Job {job_id} thread FAILED: {exc}")
+        _log(f"[engine] Traceback: {traceback.format_exc()}")
+        try:
+            db.update_job(job_id, status="failed", error=traceback.format_exc())
+        except Exception:
+            pass
     finally:
         # Remove job from running set when complete
         _running_jobs.discard(job_id)
@@ -89,6 +100,7 @@ async def _execute_job(job_id: str) -> None:
     config = json.loads(job["config"]) if isinstance(job["config"], str) else job["config"]
     url = job["url"]
 
+    _log(f"[engine] Job {job_id} starting for URL: {url}")
     db.update_job(job_id, status="running", started_at=datetime.now().isoformat())
 
     # Load settings for API keys and SMTP
@@ -185,26 +197,33 @@ async def _execute_job(job_id: str) -> None:
     )
 
     try:
+        _log(f"[engine] Job {job_id} step 1/5: launching browser...")
         async with AsyncWebCrawler(config=browser_conf) as crawler:
+            _log(f"[engine] Job {job_id} step 2/5: deep_crawl starting...")
             deep_result = await deep_crawl(crawler, url, deep_conf, run_conf)
             all_content = deep_result["all_content"]
 
             # Log crawl outcome for debugging
             listing = deep_result.get("listing_result")
             if listing and not listing.success:
-                print(f"[engine] Listing page failed: {listing.error_message}")
-            if not all_content or not all_content.strip():
-                print(f"[engine] WARNING: deep_crawl returned empty content for {url}")
+                _log(f"[engine] Listing page failed: {listing.error_message}")
+            content_len = len(all_content.strip()) if all_content else 0
+            _log(f"[engine] Job {job_id} step 3/5: deep_crawl done, content={content_len} chars")
+            if content_len == 0:
+                _log(f"[engine] WARNING: deep_crawl returned empty content for {url}")
 
             # Smart extraction with noise filtering
+            _log(f"[engine] Job {job_id} step 4/5: smart_extract starting...")
             extracted = await smart_extract(
                 all_content, run_conf, deep_conf.filter_instruction
             )
+            _log(f"[engine] Job {job_id} step 4/5: smart_extract done")
 
         # Parse and count articles
         from crawl4ai.output.email_output import EmailOutput as EO
         articles = EO._parse_extracted(extracted)
         article_count = len(articles) if isinstance(articles, list) else 0
+        _log(f"[engine] Job {job_id} step 5/5: saving {article_count} articles to outputs...")
 
         # Save final result through output backends (skip email if no articles)
         final_result = CrawlResult(
@@ -217,14 +236,18 @@ async def _execute_job(job_id: str) -> None:
         manager.save(final_result)
         manager.finalize()
 
+        status = "completed" if article_count > 0 else "completed_empty"
         db.update_job(
             job_id,
-            status="completed" if article_count > 0 else "completed_empty",
+            status=status,
             finished_at=datetime.now().isoformat(),
             article_count=article_count,
         )
+        _log(f"[engine] Job {job_id} DONE: status={status}, articles={article_count}")
 
     except Exception as exc:
+        _log(f"[engine] Job {job_id} EXCEPTION: {exc}")
+        _log(f"[engine] {traceback.format_exc()}")
         db.update_job(
             job_id,
             status="failed",

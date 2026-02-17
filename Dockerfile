@@ -37,6 +37,9 @@ RUN playwright install chromium
 # Copy application code
 COPY . .
 
+# Force unbuffered Python output so Railway logs appear in real-time
+ENV PYTHONUNBUFFERED=1
+
 # Railway sets PORT env var
 ENV PORT=8080
 EXPOSE 8080
