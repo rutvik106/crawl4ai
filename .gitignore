@@ -1,5 +1,7 @@
 .env
 .idea
+api/__pycache__
+api/routers/__pycache__
 crawl4ai/extraction/__pycache__
 crawl4ai/__pycache__
 dashboard/__pycache__
