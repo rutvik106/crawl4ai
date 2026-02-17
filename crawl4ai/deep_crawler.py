@@ -143,17 +143,7 @@ async def deep_crawl(
         if clicks:
             print(f"  Clicked 'Load More' {clicks} times", flush=True)
 
-    # ---- Phase 4: Take screenshot of fully loaded page ----
-    screenshots = []
-    if deep_config.use_screenshots:
-        ss_dir = deep_config.screenshot_dir or "/tmp/crawl4ai_screenshots"
-        os.makedirs(ss_dir, exist_ok=True)
-        ss_path = os.path.join(ss_dir, "listing_page.png")
-        await take_full_screenshot(page, path=ss_path)
-        screenshots.append(ss_path)
-        print(f"  Screenshot saved: {ss_path}", flush=True)
-
-    # ---- Phase 5: Re-capture HTML after scrolling ----
+    # ---- Phase 4: Re-capture HTML after scrolling ----
     html_after_scroll = await page.content()
     md_gen = run_conf.markdown_generator or crawler._default_md_generator
     listing_md = md_gen.convert(html_after_scroll)
@@ -163,7 +153,7 @@ async def deep_crawl(
 
     all_content_parts = [f"=== LISTING PAGE: {url} ===\n{listing_md.raw_markdown}\n"]
 
-    # ---- Phase 6: Extract article links ----
+    # ---- Phase 5: Extract article links ----
     article_links = []
     if deep_config.follow_links:
         article_links = await extract_links(
@@ -214,8 +204,34 @@ async def deep_crawl(
         result["article_links"] = article_links
         print(f"  Found {len(article_links)} article links to follow", flush=True)
 
-    # Kill the listing session
-    await crawler.kill_session(session_id)
+    # ---- Phase 6: Take screenshot (optional, after content is captured) ----
+    screenshots = []
+    if deep_config.use_screenshots:
+        ss_dir = deep_config.screenshot_dir or "/tmp/crawl4ai_screenshots"
+        os.makedirs(ss_dir, exist_ok=True)
+        ss_path = os.path.join(ss_dir, "listing_page.png")
+        try:
+            await take_full_screenshot(page, path=ss_path)
+            screenshots.append(ss_path)
+            print(f"  Screenshot saved: {ss_path}", flush=True)
+        except Exception as e:
+            print(f"  Screenshot failed (non-fatal): {e}", flush=True)
+            # Screenshot may have crashed Chromium — reset browser so
+            # inner page crawls can relaunch it via _ensure_browser()
+            try:
+                if crawler._browser:
+                    await crawler._browser.close()
+            except Exception:
+                pass
+            crawler._browser = None
+            crawler._sessions.clear()
+            print("  Browser reset after crash, will relaunch for inner pages", flush=True)
+
+    # Kill the listing session (may fail if browser crashed)
+    try:
+        await crawler.kill_session(session_id)
+    except Exception:
+        pass
 
     # ---- Phase 7: Crawl inner pages ----
     if article_links:
