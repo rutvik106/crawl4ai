@@ -147,6 +147,16 @@ class EmailOutput(OutputBackend):
         if not self._results or not self.to:
             print(f"[email] Skipping: results={len(self._results)}, to={self.to!r}")
             return
+
+        # Check if there are any actual extracted articles
+        has_articles = any(
+            r.get("extracted") and isinstance(r["extracted"], (list, dict))
+            and (len(r["extracted"]) > 0 if isinstance(r["extracted"], list) else True)
+            for r in self._results
+        )
+        if not has_articles:
+            print("[email] Skipping: no extracted articles to send")
+            return
         recipients = [email.strip() for email in self.to.split(",") if email.strip()]
         print(f"[email] Sending to {', '.join(recipients)} via {self.smtp_host}:{self.smtp_port} (from={self.from_addr})")
         try:

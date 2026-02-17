@@ -189,6 +189,13 @@ async def _execute_job(job_id: str) -> None:
             deep_result = await deep_crawl(crawler, url, deep_conf, run_conf)
             all_content = deep_result["all_content"]
 
+            # Log crawl outcome for debugging
+            listing = deep_result.get("listing_result")
+            if listing and not listing.success:
+                print(f"[engine] Listing page failed: {listing.error_message}")
+            if not all_content or not all_content.strip():
+                print(f"[engine] WARNING: deep_crawl returned empty content for {url}")
+
             # Smart extraction with noise filtering
             extracted = await smart_extract(
                 all_content, run_conf, deep_conf.filter_instruction
@@ -199,10 +206,10 @@ async def _execute_job(job_id: str) -> None:
         articles = EO._parse_extracted(extracted)
         article_count = len(articles) if isinstance(articles, list) else 0
 
-        # Save final result through output backends
+        # Save final result through output backends (skip email if no articles)
         final_result = CrawlResult(
             url=url,
-            success=True,
+            success=article_count > 0,
             markdown=MarkdownResult(raw_markdown=all_content[:5000]),
             extracted_content=extracted if isinstance(extracted, str) else json.dumps(extracted),
         )
@@ -212,7 +219,7 @@ async def _execute_job(job_id: str) -> None:
 
         db.update_job(
             job_id,
-            status="completed",
+            status="completed" if article_count > 0 else "completed_empty",
             finished_at=datetime.now().isoformat(),
             article_count=article_count,
         )
