@@ -21,6 +21,9 @@ DATABASE_URL = os.getenv(
     "postgresql://user:pass@localhost:5432/crawl4ai_dashboard"  # fallback for local dev
 )
 
+# Track if database has been initialized
+_db_initialized = False
+
 
 @contextmanager
 def _conn():
@@ -49,6 +52,10 @@ def _cursor(cursor_factory=None):
 
 def init_db() -> None:
     """Create tables if they don't exist."""
+    global _db_initialized
+    if _db_initialized:
+        return
+    
     with _conn() as conn:
         cursor = conn.cursor()
 
@@ -95,6 +102,8 @@ def init_db() -> None:
 
         conn.commit()
         cursor.close()
+    
+    _db_initialized = True
 
 
 # ---- Jobs ----
@@ -106,6 +115,7 @@ def create_job(
     config: Dict[str, Any],
     output_dir: str = "",
 ) -> Dict[str, Any]:
+    init_db()  # Ensure DB is initialized
     now = datetime.now()
     with _cursor() as cur:
         cur.execute(
@@ -119,6 +129,7 @@ def create_job(
 
 
 def update_job(job_id: str, **fields) -> None:
+    init_db()  # Ensure DB is initialized
     allowed_fields = {'name', 'url', 'config', 'status', 'started_at', 'finished_at',
                       'article_count', 'error', 'output_dir'}
 
@@ -143,6 +154,7 @@ def update_job(job_id: str, **fields) -> None:
 
 
 def get_job(job_id: str) -> Optional[Dict[str, Any]]:
+    init_db()  # Ensure DB is initialized
     with _cursor(RealDictCursor) as cur:
         cur.execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
         row = cur.fetchone()
@@ -152,6 +164,7 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
 
 
 def list_jobs(limit: int = 50) -> List[Dict[str, Any]]:
+    init_db()  # Ensure DB is initialized
     with _cursor(RealDictCursor) as cur:
         cur.execute(
             "SELECT * FROM jobs ORDER BY created_at DESC LIMIT %s",
@@ -162,6 +175,7 @@ def list_jobs(limit: int = 50) -> List[Dict[str, Any]]:
 
 
 def delete_job(job_id: str) -> None:
+    init_db()  # Ensure DB is initialized
     with _cursor() as cur:
         cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
 
@@ -175,6 +189,7 @@ def create_schedule(
     cron: str,
     recipients: str,
 ) -> int:
+    init_db()  # Ensure DB is initialized
     now = datetime.now()
     with _cursor() as cur:
         cur.execute(
@@ -190,6 +205,7 @@ def create_schedule(
 
 
 def list_schedules() -> List[Dict[str, Any]]:
+    init_db()  # Ensure DB is initialized
     with _cursor(RealDictCursor) as cur:
         cur.execute("SELECT * FROM schedules ORDER BY created_at DESC")
         rows = cur.fetchall()
@@ -197,6 +213,7 @@ def list_schedules() -> List[Dict[str, Any]]:
 
 
 def update_schedule(schedule_id: int, **fields) -> None:
+    init_db()  # Ensure DB is initialized
     allowed_fields = {'job_name', 'url', 'config', 'cron', 'recipients',
                       'enabled', 'last_run', 'next_run'}
 
@@ -221,6 +238,7 @@ def update_schedule(schedule_id: int, **fields) -> None:
 
 
 def delete_schedule(schedule_id: int) -> None:
+    init_db()  # Ensure DB is initialized
     with _cursor() as cur:
         cur.execute("DELETE FROM schedules WHERE id = %s", (schedule_id,))
 
@@ -228,6 +246,7 @@ def delete_schedule(schedule_id: int) -> None:
 # ---- Settings ----
 
 def get_setting(key: str, default: str = "") -> str:
+    init_db()  # Ensure DB is initialized
     with _cursor(RealDictCursor) as cur:
         cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
         row = cur.fetchone()
@@ -235,6 +254,7 @@ def get_setting(key: str, default: str = "") -> str:
 
 
 def set_setting(key: str, value: str) -> None:
+    init_db()  # Ensure DB is initialized
     with _cursor() as cur:
         cur.execute(
             """
@@ -247,11 +267,11 @@ def set_setting(key: str, value: str) -> None:
 
 
 def get_all_settings() -> Dict[str, str]:
+    init_db()  # Ensure DB is initialized
     with _cursor(RealDictCursor) as cur:
         cur.execute("SELECT key, value FROM settings")
         rows = cur.fetchall()
     return {r["key"]: r["value"] for r in rows}
 
 
-# Auto-init on import
-init_db()
+# Lazy initialization - init_db() is now called by each function when needed
