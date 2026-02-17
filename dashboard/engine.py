@@ -74,9 +74,19 @@ def _run_in_thread(job_id: str) -> None:
     
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+    JOB_TIMEOUT = 600  # 10 minutes max per job
     try:
-        loop.run_until_complete(_execute_job(job_id))
+        loop.run_until_complete(
+            asyncio.wait_for(_execute_job(job_id), timeout=JOB_TIMEOUT)
+        )
         _log(f"[engine] Job {job_id} thread completed successfully")
+    except asyncio.TimeoutError:
+        _log(f"[engine] Job {job_id} TIMED OUT after {JOB_TIMEOUT}s")
+        try:
+            db.update_job(job_id, status="failed", finished_at=datetime.now().isoformat(),
+                          error=f"Job timed out after {JOB_TIMEOUT} seconds")
+        except Exception:
+            pass
     except Exception as exc:
         _log(f"[engine] Job {job_id} thread FAILED: {exc}")
         _log(f"[engine] Traceback: {traceback.format_exc()}")

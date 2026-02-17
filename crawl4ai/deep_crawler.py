@@ -55,6 +55,7 @@ class DeepCrawlConfig:
     link_filter_pattern: Optional[str] = None
     max_inner_pages: int = 10
     inner_page_delay: float = 1.0
+    inner_page_timeout: float = 60.0  # seconds per inner page crawl
 
     # --- Screenshots for vision LLM ---
     use_screenshots: bool = False
@@ -130,7 +131,7 @@ async def deep_crawl(
             max_scrolls=deep_config.max_scrolls,
             scroll_delay=deep_config.scroll_delay,
         )
-        print(f"  Scrolled {scrolls} times")
+        print(f"  Scrolled {scrolls} times", flush=True)
 
     # ---- Phase 3: Click "Load More" buttons ----
     if deep_config.click_load_more:
@@ -140,7 +141,7 @@ async def deep_crawl(
             max_clicks=deep_config.max_load_more_clicks,
         )
         if clicks:
-            print(f"  Clicked 'Load More' {clicks} times")
+            print(f"  Clicked 'Load More' {clicks} times", flush=True)
 
     # ---- Phase 4: Take screenshot of fully loaded page ----
     screenshots = []
@@ -150,7 +151,7 @@ async def deep_crawl(
         ss_path = os.path.join(ss_dir, "listing_page.png")
         await take_full_screenshot(page, path=ss_path)
         screenshots.append(ss_path)
-        print(f"  Screenshot saved: {ss_path}")
+        print(f"  Screenshot saved: {ss_path}", flush=True)
 
     # ---- Phase 5: Re-capture HTML after scrolling ----
     html_after_scroll = await page.content()
@@ -171,18 +172,47 @@ async def deep_crawl(
             base_url=url,
             filter_pattern=deep_config.link_filter_pattern,
         )
-        # Filter out non-article links (homepage, category pages, externals)
+        # Filter out non-article links (homepage, category pages, externals, anchors)
         from urllib.parse import urlparse
-        base_domain = urlparse(url).netloc
-        article_links = [
-            l for l in article_links
-            if urlparse(l["url"]).netloc == base_domain
-            and len(l["text"]) > 10  # Skip tiny nav links
-            and l["url"] != url  # Skip self-link
-        ]
+        base_parsed = urlparse(url)
+        base_domain = base_parsed.netloc
+        base_path = base_parsed.path.rstrip("/")
+
+        # Common non-article path patterns to skip
+        _SKIP_PATTERNS = re.compile(
+            r"^/(#|$)|/pre-markets|/markets|/login|/signup|/subscribe|/newsletter"
+            r"|/video|/podcast|/about|/contact|/privacy|/terms|/sitemap"
+            r"|/author|/tag/|/category/|/search",
+            re.IGNORECASE,
+        )
+
+        def _is_article_link(link: dict) -> bool:
+            parsed = urlparse(link["url"])
+            # Must be same domain
+            if parsed.netloc != base_domain:
+                return False
+            # Skip anchor-only links
+            path = parsed.path.rstrip("/")
+            if not path or path == base_path:
+                return False
+            # Skip links with only a fragment
+            if link["url"].startswith(url.rstrip("/") + "#"):
+                return False
+            # Skip tiny nav links
+            if len(link["text"].strip()) < 15:
+                return False
+            # Skip common non-article paths
+            if _SKIP_PATTERNS.search(path):
+                return False
+            # Article links typically have a longer path (e.g., /section/year/article-slug)
+            if path.count("/") < 2:
+                return False
+            return True
+
+        article_links = [l for l in article_links if _is_article_link(l)]
         article_links = article_links[:deep_config.max_inner_pages]
         result["article_links"] = article_links
-        print(f"  Found {len(article_links)} article links to follow")
+        print(f"  Found {len(article_links)} article links to follow", flush=True)
 
     # Kill the listing session
     await crawler.kill_session(session_id)
@@ -197,9 +227,12 @@ async def deep_crawl(
 
         inner_results = []
         for i, link in enumerate(article_links):
-            print(f"  [{i+1}/{len(article_links)}] Crawling: {link['url'][:80]}")
+            print(f"  [{i+1}/{len(article_links)}] Crawling: {link['url'][:80]}", flush=True)
             try:
-                inner_result = await crawler.arun(url=link["url"], config=inner_conf)
+                inner_result = await asyncio.wait_for(
+                    crawler.arun(url=link["url"], config=inner_conf),
+                    timeout=deep_config.inner_page_timeout,
+                )
                 if inner_result.success:
                     inner_results.append(inner_result)
                     all_content_parts.append(
@@ -213,13 +246,17 @@ async def deep_crawl(
                         ss_path = os.path.join(ss_dir, f"article_{i+1}.png")
                         # Can't screenshot already-closed pages, skip
                         screenshots.append(ss_path)
+                else:
+                    print(f"    Failed: {inner_result.error_message[:100] if inner_result.error_message else 'unknown'}", flush=True)
+            except asyncio.TimeoutError:
+                print(f"    TIMEOUT after {deep_config.inner_page_timeout}s, skipping", flush=True)
             except Exception as e:
-                print(f"    Error: {e}")
+                print(f"    Error: {e}", flush=True)
 
             await asyncio.sleep(deep_config.inner_page_delay)
 
         result["inner_results"] = inner_results
-        print(f"  Crawled {len(inner_results)} inner pages successfully")
+        print(f"  Crawled {len(inner_results)} inner pages successfully", flush=True)
 
     # ---- Phase 8: Aggregate all content ----
     result["all_content"] = "\n".join(all_content_parts)
