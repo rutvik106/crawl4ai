@@ -9,10 +9,16 @@ import sys
 import threading
 import traceback
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from queue import Queue
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Set to track running job IDs and prevent duplicates
 _running_jobs: Set[str] = set()
+
+# Job queue for limiting concurrency (max 1 for Railway free tier)
+MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "1"))
+_job_queue: Queue[Tuple[str, threading.Event]] = Queue()
+_queue_processor_started = False
 
 # Ensure crawl4ai is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -48,24 +54,72 @@ def _log(msg: str) -> None:
     print(msg, flush=True)
 
 
-def run_job_async(job_id: str) -> None:
-    """Run a crawl job in a background thread with its own event loop.
+def _queue_processor() -> None:
+    """Background thread that processes jobs from the queue with limited concurrency."""
+    semaphore = threading.Semaphore(MAX_CONCURRENT_JOBS)
     
+    while True:
+        try:
+            job_id, done_event = _job_queue.get(timeout=1)
+            if job_id is None:  # Shutdown signal
+                break
+                
+            # Try to acquire semaphore (blocks until slot available)
+            acquired = semaphore.acquire(blocking=False)
+            if not acquired:
+                _log(f"[engine] Job {job_id} waiting for available slot ({MAX_CONCURRENT_JOBS} max)")
+                semaphore.acquire()  # Block until available
+                
+            # Run the job in a thread
+            def run_with_release():
+                try:
+                    _run_in_thread(job_id)
+                finally:
+                    semaphore.release()
+                    done_event.set()
+                    
+            thread = threading.Thread(target=run_with_release, daemon=True)
+            thread.start()
+            
+        except Exception:
+            continue
+
+
+def _start_queue_processor() -> None:
+    """Start the queue processor thread if not already running."""
+    global _queue_processor_started
+    if not _queue_processor_started:
+        processor = threading.Thread(target=_queue_processor, daemon=True)
+        processor.start()
+        _queue_processor_started = True
+        _log(f"[engine] Queue processor started (max_concurrent={MAX_CONCURRENT_JOBS})")
+
+
+def run_job_async(job_id: str) -> None:
+    """Queue a crawl job for execution with limited concurrency.
+    
+    Jobs are processed FIFO with MAX_CONCURRENT_JOBS limit.
     Prevents duplicate execution of the same job ID.
     """
-    global _running_jobs
+    global _running_jobs, _queue_processor_started
     
     # Check if job is already running
     if job_id in _running_jobs:
         print(f"[engine] Job {job_id} is already running, skipping duplicate execution")
         return
         
-    # Mark job as running
+    # Mark job as running and queue it
     _running_jobs.add(job_id)
+    _start_queue_processor()
     
-    # Start job in background thread
-    thread = threading.Thread(target=_run_in_thread, args=(job_id,), daemon=True)
-    thread.start()
+    done_event = threading.Event()
+    _job_queue.put((job_id, done_event))
+    
+    queue_size = _job_queue.qsize()
+    if queue_size > 1:
+        print(f"[engine] Job {job_id} queued (position {queue_size}, max_concurrent={MAX_CONCURRENT_JOBS})")
+    else:
+        print(f"[engine] Job {job_id} queued for execution")
 
 
 def _run_in_thread(job_id: str) -> None:
@@ -120,6 +174,7 @@ async def _execute_job(job_id: str) -> None:
     smtp_port = int(settings.get("smtp_port", os.getenv("SMTP_PORT", "587")))
     smtp_user = settings.get("smtp_user", os.getenv("SMTP_USER", ""))
     smtp_password = settings.get("smtp_password", os.getenv("SMTP_PASSWORD", ""))
+    sendgrid_key = settings.get("sendgrid_api_key", os.getenv("SENDGRID_API_KEY", ""))
 
     # Build output directory with absolute path to avoid relative path issues
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -141,6 +196,7 @@ async def _execute_job(job_id: str) -> None:
         smtp_user=smtp_user,
         smtp_password=smtp_password,
         email_subject=email_subject,
+        sendgrid_api_key=sendgrid_key,
     )
 
     backend_names = [type(b).__name__ for b in outputs]

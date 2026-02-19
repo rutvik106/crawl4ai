@@ -1,8 +1,9 @@
-"""Email output backend — sends crawl results via SMTP."""
+"""Email output backend — sends crawl results via SMTP or HTTP API."""
 
 from __future__ import annotations
 
 import json
+import os
 import smtplib
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
@@ -50,6 +51,7 @@ class EmailOutput(OutputBackend):
         smtp_password: str = "",
         from_addr: str = "",
         use_tls: bool = True,
+        sendgrid_api_key: str = "",
     ) -> None:
         self.to = to
         self.subject = subject
@@ -59,6 +61,7 @@ class EmailOutput(OutputBackend):
         self.smtp_password = smtp_password
         self.from_addr = from_addr or smtp_user
         self.use_tls = use_tls
+        self.sendgrid_api_key = sendgrid_api_key or os.getenv("SENDGRID_API_KEY", "")
         self._results: List[Dict[str, Any]] = []
 
     def save(self, result: CrawlResult, metadata: Optional[Dict[str, Any]] = None) -> None:
@@ -247,7 +250,10 @@ class EmailOutput(OutputBackend):
         # Split comma-separated recipients into a list
         recipients = [email.strip() for email in self.to.split(",") if email.strip()]
 
-        # Try STARTTLS first, then fall back to SMTP_SSL (port 465)
+        # Try STARTTLS first, then SMTP_SSL, then SendGrid HTTP API
+        errors = []
+        
+        # Attempt 1: STARTTLS (port 587)
         try:
             print(f"[email] Trying STARTTLS on {self.smtp_host}:{self.smtp_port}...", flush=True)
             with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as server:
@@ -258,14 +264,69 @@ class EmailOutput(OutputBackend):
                 server.sendmail(self.from_addr, recipients, msg.as_string())
                 print("[email] Sent via STARTTLS", flush=True)
                 return
-        except (OSError, smtplib.SMTPException) as e:
+        except Exception as e:
+            errors.append(f"STARTTLS: {e}")
             print(f"[email] STARTTLS failed: {e}", flush=True)
 
-        # Fallback: SMTP_SSL on port 465
-        ssl_port = 465
-        print(f"[email] Trying SMTP_SSL on {self.smtp_host}:{ssl_port}...", flush=True)
-        with smtplib.SMTP_SSL(self.smtp_host, ssl_port, timeout=15) as server:
-            if self.smtp_user and self.smtp_password:
-                server.login(self.smtp_user, self.smtp_password)
-            server.sendmail(self.from_addr, recipients, msg.as_string())
-            print("[email] Sent via SMTP_SSL", flush=True)
+        # Attempt 2: SMTP_SSL (port 465)
+        try:
+            ssl_port = 465
+            print(f"[email] Trying SMTP_SSL on {self.smtp_host}:{ssl_port}...", flush=True)
+            with smtplib.SMTP_SSL(self.smtp_host, ssl_port, timeout=15) as server:
+                if self.smtp_user and self.smtp_password:
+                    server.login(self.smtp_user, self.smtp_password)
+                server.sendmail(self.from_addr, recipients, msg.as_string())
+                print("[email] Sent via SMTP_SSL", flush=True)
+                return
+        except Exception as e:
+            errors.append(f"SMTP_SSL: {e}")
+            print(f"[email] SMTP_SSL failed: {e}", flush=True)
+
+        # Attempt 3: SendGrid HTTP API (port 443 - always open on Railway)
+        if self.sendgrid_api_key:
+            try:
+                print("[email] Trying SendGrid HTTP API...", flush=True)
+                self._send_sendgrid(html_body, recipients)
+                print("[email] Sent via SendGrid HTTP API", flush=True)
+                return
+            except Exception as e:
+                errors.append(f"SendGrid: {e}")
+                print(f"[email] SendGrid failed: {e}", flush=True)
+
+        # All methods failed
+        raise Exception(f"All email methods failed: {'; '.join(errors)}")
+
+    def _send_sendgrid(self, html_body: str, recipients: List[str]) -> None:
+        """Send email via SendGrid HTTP API (uses HTTPS port 443)."""
+        import urllib.request
+        import urllib.error
+
+        url = "https://api.sendgrid.com/v3/mail/send"
+        
+        # Build personalization for each recipient
+        personalizations = [{"to": [{"email": r}]} for r in recipients]
+        
+        data = {
+            "personalizations": personalizations,
+            "from": {"email": self.from_addr},
+            "subject": self.subject,
+            "content": [{"type": "text/html", "value": html_body}],
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.sendgrid_api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                if response.status not in (200, 201, 202):
+                    raise Exception(f"SendGrid returned {response.status}")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8")
+            raise Exception(f"SendGrid HTTP {e.code}: {body}")
