@@ -100,9 +100,23 @@ def init_db() -> None:
             )
         """)
 
+        # Create users table for RBAC
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user',
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
+
         conn.commit()
         cursor.close()
-    
+
     _db_initialized = True
 
 
@@ -272,6 +286,103 @@ def get_all_settings() -> Dict[str, str]:
         cur.execute("SELECT key, value FROM settings")
         rows = cur.fetchall()
     return {r["key"]: r["value"] for r in rows}
+
+
+# ---- Users ----
+
+def create_user(
+    username: str,
+    password_hash: str,
+    role: str = "user",
+    email: Optional[str] = None,
+    created_by: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Insert a new user record and return it."""
+    init_db()
+    with _cursor(RealDictCursor) as cur:
+        cur.execute(
+            """
+            INSERT INTO users (username, email, password_hash, role, created_by)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (username, email, password_hash, role, created_by),
+        )
+        row = cur.fetchone()
+    return dict(row)
+
+
+def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
+    """Fetch a user by username."""
+    init_db()
+    with _cursor(RealDictCursor) as cur:
+        cur.execute("SELECT * FROM users WHERE username = %s", (username,))
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
+    """Fetch a user by ID."""
+    init_db()
+    with _cursor(RealDictCursor) as cur:
+        cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def list_users(created_by: Optional[int] = None) -> List[Dict[str, Any]]:
+    """List users, optionally filtered by who created them."""
+    init_db()
+    with _cursor(RealDictCursor) as cur:
+        if created_by is not None:
+            cur.execute(
+                "SELECT * FROM users WHERE created_by = %s ORDER BY created_at DESC",
+                (created_by,),
+            )
+        else:
+            cur.execute("SELECT * FROM users ORDER BY created_at DESC")
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_user(user_id: int, **fields) -> None:
+    """Update allowed fields on a user record."""
+    init_db()
+    allowed = {"username", "email", "password_hash", "role", "is_active"}
+    sets, vals = [], []
+    for k, v in fields.items():
+        if k in allowed:
+            sets.append(f"{k} = %s")
+            vals.append(v)
+    if not sets:
+        return
+    vals.append(user_id)
+    with _cursor() as cur:
+        cur.execute(f"UPDATE users SET {', '.join(sets)} WHERE id = %s", vals)
+
+
+def upsert_super_admin(username: str, password_hash: str) -> None:
+    """Create or update the super-admin account (idempotent on startup)."""
+    init_db()
+    with _cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO users (username, password_hash, role, is_active)
+            VALUES (%s, %s, 'super_admin', TRUE)
+            ON CONFLICT (username) DO UPDATE
+                SET password_hash = EXCLUDED.password_hash,
+                    role = 'super_admin',
+                    is_active = TRUE
+            """,
+            (username, password_hash),
+        )
+
+
+def delete_user(user_id: int) -> None:
+    """Delete a user by ID."""
+    init_db()
+    with _cursor() as cur:
+        cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
 
 
 # Lazy initialization - init_db() is now called by each function when needed
