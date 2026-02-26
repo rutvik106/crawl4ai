@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from dashboard import db
+from api.auth import require_any_auth
 from api.models import StatsResponse
 
-router = APIRouter(prefix="/stats", tags=["stats"])
+router = APIRouter(prefix="/stats", tags=["stats"], dependencies=[Depends(require_any_auth)])
 
 
 @router.get("", response_model=StatsResponse)

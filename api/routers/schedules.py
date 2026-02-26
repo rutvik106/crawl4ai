@@ -6,12 +6,13 @@ import json
 import threading
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from dashboard import db
 from dashboard.engine import run_job_async
 from dashboard.scheduler import get_scheduler, refresh_schedules
 from crawl4ai.output.job import generate_job_id
+from api.auth import require_any_auth
 from api.models import (
     ScheduleCreateRequest,
     ScheduleResponse,
@@ -20,7 +21,7 @@ from api.models import (
     SuccessResponse,
 )
 
-router = APIRouter(prefix="/schedules", tags=["schedules"])
+router = APIRouter(prefix="/schedules", tags=["schedules"], dependencies=[Depends(require_any_auth)])
 
 
 def _parse_config(config: Any) -> Dict[str, Any]:

@@ -6,9 +6,10 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from dashboard import db
+from api.auth import require_super_admin
 from api.models import (
     SettingsResponse,
     SettingsUpdateRequest,
@@ -16,7 +17,7 @@ from api.models import (
     SuccessResponse,
 )
 
-router = APIRouter(prefix="/settings", tags=["settings"])
+router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_super_admin)])
 
 
 def _get_settings_from_db() -> SettingsResponse:
