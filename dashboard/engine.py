@@ -45,6 +45,7 @@ from crawl4ai import (
 )
 from crawl4ai.output.job import create_job_outputs, generate_job_id
 from crawl4ai.output.base import OutputManager
+from crawl4ai.output.vercel_blob_output import VercelBlobOutput
 
 from . import db
 
@@ -199,6 +200,15 @@ async def _execute_job(job_id: str) -> None:
         sendgrid_api_key=sendgrid_key,
     )
 
+    # Vercel Blob Storage — upload artifacts after local backends write them
+    blob_token = settings.get("blob_read_write_token", os.getenv("BLOB_READ_WRITE_TOKEN", ""))
+    blob_backend = VercelBlobOutput(
+        job_id=job_id,
+        output_dir=output_dir,
+        blob_token=blob_token,
+    )
+    outputs.append(blob_backend)
+
     backend_names = [type(b).__name__ for b in outputs]
     print(f"[engine] Job {job_id}: backends={backend_names}")
     print(f"[engine]   recipients={recipients!r}, smtp_host={smtp_host!r}, smtp_user={smtp_user!r}")
@@ -303,12 +313,15 @@ async def _execute_job(job_id: str) -> None:
         manager.finalize()
 
         status = "completed" if article_count > 0 else "completed_empty"
-        db.update_job(
-            job_id,
-            status=status,
-            finished_at=datetime.now().isoformat(),
-            article_count=article_count,
-        )
+        update_kwargs: dict = {
+            "status": status,
+            "finished_at": datetime.now().isoformat(),
+            "article_count": article_count,
+        }
+        if blob_backend.uploaded_urls:
+            update_kwargs["blob_urls"] = blob_backend.uploaded_urls
+            _log(f"[engine] Job {job_id}: blob URLs stored: {blob_backend.uploaded_urls}")
+        db.update_job(job_id, **update_kwargs)
         _log(f"[engine] Job {job_id} DONE: status={status}, articles={article_count}")
 
     except Exception as exc:

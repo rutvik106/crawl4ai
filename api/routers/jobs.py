@@ -191,8 +191,22 @@ async def get_job_results(job_id: str) -> JobResultsResponse:
             except Exception:
                 pass
     
+    # Include Vercel Blob URLs if they were stored on the job record
+    raw_blob_urls = job.get("blob_urls")
+    blob_urls: Optional[Dict[str, str]] = None
+    if raw_blob_urls:
+        if isinstance(raw_blob_urls, str):
+            import json as _json
+            try:
+                blob_urls = _json.loads(raw_blob_urls)
+            except Exception:
+                pass
+        elif isinstance(raw_blob_urls, dict):
+            blob_urls = raw_blob_urls
+
     return JobResultsResponse(
         job_id=job_id,
         files=files,
         results=results,
+        blob_urls=blob_urls,
     )

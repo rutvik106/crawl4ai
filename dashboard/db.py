@@ -72,8 +72,14 @@ def init_db() -> None:
                 finished_at TIMESTAMP WITH TIME ZONE,
                 article_count INTEGER DEFAULT 0,
                 error TEXT,
-                output_dir TEXT
+                output_dir TEXT,
+                blob_urls JSONB
             )
+        """)
+
+        # Add blob_urls column to existing tables that predate this migration
+        cursor.execute("""
+            ALTER TABLE jobs ADD COLUMN IF NOT EXISTS blob_urls JSONB
         """)
 
         # Create schedules table
@@ -145,14 +151,14 @@ def create_job(
 def update_job(job_id: str, **fields) -> None:
     init_db()  # Ensure DB is initialized
     allowed_fields = {'name', 'url', 'config', 'status', 'started_at', 'finished_at',
-                      'article_count', 'error', 'output_dir'}
+                      'article_count', 'error', 'output_dir', 'blob_urls'}
 
     sets = []
     vals = []
     for k, v in fields.items():
         if k in allowed_fields:
             sets.append(f"{k} = %s")
-            if k == 'config' and isinstance(v, dict):
+            if k in ('config', 'blob_urls') and isinstance(v, dict):
                 vals.append(json.dumps(v))
             elif k in ('started_at', 'finished_at') and v is not None:
                 vals.append(v if isinstance(v, datetime) else datetime.fromisoformat(v))

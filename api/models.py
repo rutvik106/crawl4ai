@@ -48,6 +48,7 @@ class JobResultsResponse(BaseModel):
     job_id: str
     files: List[Dict[str, Any]]
     results: Optional[Any] = None
+    blob_urls: Optional[Dict[str, str]] = None
 
 
 # ---- Schedule Models ----
