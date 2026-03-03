@@ -21,7 +21,9 @@ from api.models import (
     SuccessResponse,
 )
 
-router = APIRouter(prefix="/schedules", tags=["schedules"], dependencies=[Depends(require_any_auth)])
+router = APIRouter(prefix="/schedules", tags=["schedules"])
+
+_ADMIN_ROLES = {"super_admin", "admin"}
 
 
 def _parse_config(config: Any) -> Dict[str, Any]:
@@ -44,13 +46,23 @@ def _schedule_to_response(sched: Dict[str, Any]) -> ScheduleResponse:
         next_run=str(sched["next_run"]) if sched.get("next_run") else None,
         created_at=str(sched["created_at"]) if sched.get("created_at") else None,
         config=_parse_config(sched.get("config")),
+        user_id=sched.get("user_id"),
     )
 
 
+def _check_schedule_ownership(sched: Dict[str, Any], current_user: dict) -> None:
+    """Raise 403 if a regular user tries to access a schedule they don't own."""
+    if current_user.get("role") in _ADMIN_ROLES:
+        return
+    if sched.get("user_id") != current_user.get("user_id"):
+        raise HTTPException(status_code=403, detail="Access denied: you do not own this schedule")
+
+
 @router.get("", response_model=ScheduleListResponse)
-async def list_schedules() -> ScheduleListResponse:
-    """List all scheduled jobs."""
-    schedules = db.list_schedules()
+async def list_schedules(current_user: dict = Depends(require_any_auth)) -> ScheduleListResponse:
+    """List schedules. Admins see all; regular users see only their own."""
+    user_id_filter = None if current_user.get("role") in _ADMIN_ROLES else current_user.get("user_id")
+    schedules = db.list_schedules(user_id=user_id_filter)
     return ScheduleListResponse(
         schedules=[_schedule_to_response(s) for s in schedules],
         total=len(schedules),
@@ -58,17 +70,22 @@ async def list_schedules() -> ScheduleListResponse:
 
 
 @router.get("/{schedule_id}", response_model=ScheduleResponse)
-async def get_schedule(schedule_id: int) -> ScheduleResponse:
+async def get_schedule(
+    schedule_id: int, current_user: dict = Depends(require_any_auth)
+) -> ScheduleResponse:
     """Get details of a specific schedule."""
-    schedules = db.list_schedules()
-    for sched in schedules:
-        if sched["id"] == schedule_id:
-            return _schedule_to_response(sched)
-    raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
+    sched = db.get_schedule_by_id(schedule_id)
+    if not sched:
+        raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
+    _check_schedule_ownership(sched, current_user)
+    return _schedule_to_response(sched)
 
 
 @router.post("", response_model=ScheduleResponse)
-async def create_schedule(request: ScheduleCreateRequest) -> ScheduleResponse:
+async def create_schedule(
+    request: ScheduleCreateRequest,
+    current_user: dict = Depends(require_any_auth),
+) -> ScheduleResponse:
     """Create a new recurring schedule."""
     schedule_id = db.create_schedule(
         job_name=request.job_name,
@@ -76,90 +93,78 @@ async def create_schedule(request: ScheduleCreateRequest) -> ScheduleResponse:
         config=request.config,
         cron=request.cron,
         recipients=request.recipients,
+        user_id=current_user.get("user_id"),
     )
-    
+
     if not request.enabled:
         db.update_schedule(schedule_id, enabled=0)
-    
+
     # Refresh scheduler in background thread to avoid blocking API response
     def _refresh():
         try:
             refresh_schedules()
         except Exception as e:
             print(f"[scheduler] Background refresh failed: {e}")
-    
+
     threading.Thread(target=_refresh, daemon=True).start()
-    
-    # Get the created schedule
-    schedules = db.list_schedules()
-    for sched in schedules:
-        if sched["id"] == schedule_id:
-            return _schedule_to_response(sched)
-    
-    raise HTTPException(status_code=500, detail="Failed to create schedule")
+
+    sched = db.get_schedule_by_id(schedule_id)
+    if not sched:
+        raise HTTPException(status_code=500, detail="Failed to create schedule")
+    return _schedule_to_response(sched)
 
 
 @router.put("/{schedule_id}/toggle", response_model=ScheduleResponse)
-async def toggle_schedule(schedule_id: int, request: ScheduleToggleRequest) -> ScheduleResponse:
+async def toggle_schedule(
+    schedule_id: int,
+    request: ScheduleToggleRequest,
+    current_user: dict = Depends(require_any_auth),
+) -> ScheduleResponse:
     """Enable or disable a schedule."""
-    # Check if schedule exists
-    schedules = db.list_schedules()
-    found = None
-    for sched in schedules:
-        if sched["id"] == schedule_id:
-            found = sched
-            break
-    
-    if not found:
+    sched = db.get_schedule_by_id(schedule_id)
+    if not sched:
         raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
-    
-    # Update enabled status
+    _check_schedule_ownership(sched, current_user)
+
     db.update_schedule(schedule_id, enabled=1 if request.enabled else 0)
-    
-    # Refresh scheduler in background thread to avoid blocking API response
+
     def _refresh():
         try:
             refresh_schedules()
         except Exception as e:
             print(f"[scheduler] Background refresh failed: {e}")
-    
+
     threading.Thread(target=_refresh, daemon=True).start()
-    
-    # Return updated schedule
-    schedules = db.list_schedules()
-    for sched in schedules:
-        if sched["id"] == schedule_id:
-            return _schedule_to_response(sched)
-    
-    raise HTTPException(status_code=500, detail="Failed to update schedule")
+
+    updated = db.get_schedule_by_id(schedule_id)
+    if not updated:
+        raise HTTPException(status_code=500, detail="Failed to update schedule")
+    return _schedule_to_response(updated)
 
 
 @router.post("/{schedule_id}/run-now", response_model=SuccessResponse)
-async def run_schedule_now(schedule_id: int) -> SuccessResponse:
+async def run_schedule_now(
+    schedule_id: int, current_user: dict = Depends(require_any_auth)
+) -> SuccessResponse:
     """Trigger an immediate run of a scheduled job."""
-    # Find the schedule
-    schedules = db.list_schedules()
-    sched = None
-    for s in schedules:
-        if s["id"] == schedule_id:
-            sched = s
-            break
-    
+    sched = db.get_schedule_by_id(schedule_id)
     if not sched:
         raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
-    
+    _check_schedule_ownership(sched, current_user)
+
     config = _parse_config(sched.get("config"))
     job_id = generate_job_id()
-    
+
     db.create_job(
         job_id=job_id,
         name=f"{sched['job_name']} (manual)",
         url=sched["url"],
         config=config,
+        user_id=current_user.get("user_id"),
     )
-    
+
     run_job_async(job_id)
-    
+
     return SuccessResponse(
         message=f"Running now as job {job_id}",
         data={"job_id": job_id},
@@ -167,28 +172,23 @@ async def run_schedule_now(schedule_id: int) -> SuccessResponse:
 
 
 @router.delete("/{schedule_id}", response_model=SuccessResponse)
-async def delete_schedule(schedule_id: int) -> SuccessResponse:
+async def delete_schedule(
+    schedule_id: int, current_user: dict = Depends(require_any_auth)
+) -> SuccessResponse:
     """Delete a schedule."""
-    # Check if schedule exists
-    schedules = db.list_schedules()
-    found = False
-    for sched in schedules:
-        if sched["id"] == schedule_id:
-            found = True
-            break
-    
-    if not found:
+    sched = db.get_schedule_by_id(schedule_id)
+    if not sched:
         raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
-    
+    _check_schedule_ownership(sched, current_user)
+
     db.delete_schedule(schedule_id)
-    
-    # Refresh scheduler in background thread to avoid blocking API response
+
     def _refresh():
         try:
             refresh_schedules()
         except Exception as e:
             print(f"[scheduler] Background refresh failed: {e}")
-    
+
     threading.Thread(target=_refresh, daemon=True).start()
-    
+
     return SuccessResponse(message=f"Schedule {schedule_id} deleted successfully")
