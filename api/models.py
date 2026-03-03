@@ -20,6 +20,7 @@ class JobCreateRequest(BaseModel):
     recipients: str = Field("", description="Email recipients (comma-separated)")
     email_subject: str = Field("", description="Email subject")
     run_async: bool = Field(True, description="Run job immediately after creation")
+    summarize_with_ai: bool = Field(False, description="Generate an AI summary and include it in the email")
 
 
 class JobResponse(BaseModel):

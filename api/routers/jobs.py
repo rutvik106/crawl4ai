@@ -103,6 +103,7 @@ async def create_job(
         "extraction_instruction": request.extraction_instruction,
         "recipients": request.recipients,
         "email_subject": request.email_subject,
+        "summarize_with_ai": request.summarize_with_ai,
     }
 
     job = db.create_job(

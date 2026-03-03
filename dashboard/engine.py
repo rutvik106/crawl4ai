@@ -301,6 +301,41 @@ async def _execute_job(job_id: str) -> None:
         article_count = len(articles) if isinstance(articles, list) else 0
         _log(f"[engine] Job {job_id} step 5/5: saving {article_count} articles to outputs...")
 
+        # Generate AI summary if requested and articles are available
+        if config.get("summarize_with_ai") and article_count > 0 and groq_key:
+            try:
+                import litellm
+                article_lines = []
+                for art in (articles if isinstance(articles, list) else [])[:25]:
+                    if isinstance(art, dict):
+                        title = art.get("title", "")
+                        summary = art.get("summary", "")
+                        article_lines.append(f"- {title}: {summary}" if summary else f"- {title}")
+                articles_text = "\n".join(article_lines)
+                summary_prompt = (
+                    f"Based on these {article_count} scraped articles, write a concise 2-3 sentence "
+                    f"executive summary covering the main themes and key topics:\n\n{articles_text}"
+                )
+                summary_response = await litellm.acompletion(
+                    model=config.get("llm_provider", "groq/llama-3.1-8b-instant"),
+                    api_key=groq_key,
+                    messages=[
+                        {"role": "system", "content": "You are a news analyst. Write clear, concise executive summaries."},
+                        {"role": "user", "content": summary_prompt},
+                    ],
+                    temperature=0.3,
+                    max_tokens=200,
+                )
+                ai_summary = summary_response.choices[0].message.content.strip()
+                # Inject the summary into the EmailOutput backend
+                for output in outputs:
+                    if isinstance(output, EO):
+                        output.ai_summary = ai_summary
+                        break
+                _log(f"[engine] Job {job_id}: AI summary generated ({len(ai_summary)} chars)")
+            except Exception as summary_err:
+                _log(f"[engine] Job {job_id}: AI summary generation failed: {summary_err}")
+
         # Save final result through output backends (skip email if no articles)
         final_result = CrawlResult(
             url=url,
