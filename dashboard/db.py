@@ -55,9 +55,23 @@ def init_db() -> None:
     global _db_initialized
     if _db_initialized:
         return
-    
+
     with _conn() as conn:
         cursor = conn.cursor()
+
+        # Create users table first (required before FK references in jobs/schedules)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user',
+                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+        """)
 
         # Create jobs table
         cursor.execute("""
@@ -73,13 +87,17 @@ def init_db() -> None:
                 article_count INTEGER DEFAULT 0,
                 error TEXT,
                 output_dir TEXT,
-                blob_urls JSONB
+                blob_urls JSONB,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
             )
         """)
 
-        # Add blob_urls column to existing tables that predate this migration
+        # Migrations for existing tables that predate these columns
         cursor.execute("""
             ALTER TABLE jobs ADD COLUMN IF NOT EXISTS blob_urls JSONB
+        """)
+        cursor.execute("""
+            ALTER TABLE jobs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
         """)
 
         # Create schedules table
@@ -94,8 +112,14 @@ def init_db() -> None:
                 enabled INTEGER DEFAULT 1,
                 last_run TIMESTAMP WITH TIME ZONE,
                 next_run TIMESTAMP WITH TIME ZONE,
-                created_at TIMESTAMP WITH TIME ZONE NOT NULL
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
             )
+        """)
+
+        # Migration for existing schedules tables
+        cursor.execute("""
+            ALTER TABLE schedules ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
         """)
 
         # Create settings table
@@ -103,20 +127,6 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
-            )
-        """)
-
-        # Create users table for RBAC
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                username TEXT UNIQUE NOT NULL,
-                email TEXT UNIQUE,
-                password_hash TEXT NOT NULL,
-                role TEXT NOT NULL DEFAULT 'user',
-                created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         """)
 
@@ -134,18 +144,19 @@ def create_job(
     url: str,
     config: Dict[str, Any],
     output_dir: str = "",
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     init_db()  # Ensure DB is initialized
     now = datetime.now()
     with _cursor() as cur:
         cur.execute(
             """
-            INSERT INTO jobs (id, name, url, config, status, created_at, output_dir)
-            VALUES (%s, %s, %s, %s, 'pending', %s, %s)
+            INSERT INTO jobs (id, name, url, config, status, created_at, output_dir, user_id)
+            VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s)
             """,
-            (job_id, name, url, json.dumps(config), now, output_dir),
+            (job_id, name, url, json.dumps(config), now, output_dir, user_id),
         )
-    return {"id": job_id, "name": name, "url": url, "status": "pending", "created_at": now.isoformat()}
+    return {"id": job_id, "name": name, "url": url, "status": "pending", "created_at": now.isoformat(), "user_id": user_id}
 
 
 def update_job(job_id: str, **fields) -> None:
@@ -183,13 +194,19 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def list_jobs(limit: int = 50) -> List[Dict[str, Any]]:
+def list_jobs(limit: int = 50, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
     init_db()  # Ensure DB is initialized
     with _cursor(RealDictCursor) as cur:
-        cur.execute(
-            "SELECT * FROM jobs ORDER BY created_at DESC LIMIT %s",
-            (limit,)
-        )
+        if user_id is not None:
+            cur.execute(
+                "SELECT * FROM jobs WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
+                (user_id, limit),
+            )
+        else:
+            cur.execute(
+                "SELECT * FROM jobs ORDER BY created_at DESC LIMIT %s",
+                (limit,),
+            )
         rows = cur.fetchall()
     return [dict(r) for r in rows]
 
@@ -208,28 +225,44 @@ def create_schedule(
     config: Dict[str, Any],
     cron: str,
     recipients: str,
+    user_id: Optional[int] = None,
 ) -> int:
     init_db()  # Ensure DB is initialized
     now = datetime.now()
     with _cursor() as cur:
         cur.execute(
             """
-            INSERT INTO schedules (job_name, url, config, cron, recipients, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO schedules (job_name, url, config, cron, recipients, created_at, user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (job_name, url, json.dumps(config), cron, recipients, now),
+            (job_name, url, json.dumps(config), cron, recipients, now, user_id),
         )
         schedule_id = cur.fetchone()[0]
     return schedule_id
 
 
-def list_schedules() -> List[Dict[str, Any]]:
+def list_schedules(user_id: Optional[int] = None) -> List[Dict[str, Any]]:
     init_db()  # Ensure DB is initialized
     with _cursor(RealDictCursor) as cur:
-        cur.execute("SELECT * FROM schedules ORDER BY created_at DESC")
+        if user_id is not None:
+            cur.execute(
+                "SELECT * FROM schedules WHERE user_id = %s ORDER BY created_at DESC",
+                (user_id,),
+            )
+        else:
+            cur.execute("SELECT * FROM schedules ORDER BY created_at DESC")
         rows = cur.fetchall()
     return [dict(r) for r in rows]
+
+
+def get_schedule_by_id(schedule_id: int) -> Optional[Dict[str, Any]]:
+    """Fetch a single schedule by its ID."""
+    init_db()
+    with _cursor(RealDictCursor) as cur:
+        cur.execute("SELECT * FROM schedules WHERE id = %s", (schedule_id,))
+        row = cur.fetchone()
+    return dict(row) if row else None
 
 
 def update_schedule(schedule_id: int, **fields) -> None:

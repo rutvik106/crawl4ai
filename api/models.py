@@ -35,6 +35,7 @@ class JobResponse(BaseModel):
     error: Optional[str] = None
     output_dir: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
+    user_id: Optional[int] = None
 
 
 class JobListResponse(BaseModel):
@@ -75,6 +76,7 @@ class ScheduleResponse(BaseModel):
     next_run: Optional[str] = None
     created_at: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
+    user_id: Optional[int] = None
 
 
 class ScheduleListResponse(BaseModel):

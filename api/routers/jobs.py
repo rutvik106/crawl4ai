@@ -22,7 +22,9 @@ from api.models import (
     SuccessResponse,
 )
 
-router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(require_any_auth)])
+router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+_ADMIN_ROLES = {"super_admin", "admin"}
 
 
 def _parse_config(config: Any) -> Dict[str, Any]:
@@ -46,20 +48,31 @@ def _job_to_response(job: Dict[str, Any]) -> JobResponse:
         error=job.get("error"),
         output_dir=job.get("output_dir"),
         config=_parse_config(job.get("config")),
+        user_id=job.get("user_id"),
     )
+
+
+def _check_job_ownership(job: Dict[str, Any], current_user: dict) -> None:
+    """Raise 403 if a regular user tries to access a job they don't own."""
+    if current_user.get("role") in _ADMIN_ROLES:
+        return
+    if job.get("user_id") != current_user.get("user_id"):
+        raise HTTPException(status_code=403, detail="Access denied: you do not own this job")
 
 
 @router.get("", response_model=JobListResponse)
 async def list_jobs(
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of jobs to return"),
+    current_user: dict = Depends(require_any_auth),
 ) -> JobListResponse:
-    """List all jobs with optional status filter."""
-    jobs = db.list_jobs(limit=limit)
-    
+    """List jobs. Admins see all jobs; regular users see only their own."""
+    user_id_filter = None if current_user.get("role") in _ADMIN_ROLES else current_user.get("user_id")
+    jobs = db.list_jobs(limit=limit, user_id=user_id_filter)
+
     if status:
         jobs = [j for j in jobs if j["status"] == status]
-    
+
     return JobListResponse(
         jobs=[_job_to_response(j) for j in jobs],
         total=len(jobs),
@@ -67,19 +80,23 @@ async def list_jobs(
 
 
 @router.get("/{job_id}", response_model=JobResponse)
-async def get_job(job_id: str) -> JobResponse:
+async def get_job(job_id: str, current_user: dict = Depends(require_any_auth)) -> JobResponse:
     """Get details of a specific job."""
     job = db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    _check_job_ownership(job, current_user)
     return _job_to_response(job)
 
 
 @router.post("", response_model=JobResponse)
-async def create_job(request: JobCreateRequest) -> JobResponse:
+async def create_job(
+    request: JobCreateRequest,
+    current_user: dict = Depends(require_any_auth),
+) -> JobResponse:
     """Create a new crawl job."""
     job_id = generate_job_id()
-    
+
     config = {
         **request.nav_config,
         "schema_fields": request.schema_fields or {},
@@ -87,55 +104,59 @@ async def create_job(request: JobCreateRequest) -> JobResponse:
         "recipients": request.recipients,
         "email_subject": request.email_subject,
     }
-    
+
     job = db.create_job(
         job_id=job_id,
         name=request.name,
         url=request.url,
         config=config,
+        user_id=current_user.get("user_id"),
     )
-    
+
     if request.run_async:
         run_job_async(job_id)
-    
+
     return _job_to_response(job)
 
 
 @router.post("/{job_id}/rerun", response_model=JobResponse)
-async def rerun_job(job_id: str) -> JobResponse:
+async def rerun_job(job_id: str, current_user: dict = Depends(require_any_auth)) -> JobResponse:
     """Re-run an existing job with the same configuration."""
     job = db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    
+    _check_job_ownership(job, current_user)
+
     config = _parse_config(job.get("config"))
     new_id = generate_job_id()
-    
+
     new_job = db.create_job(
         job_id=new_id,
         name=job["name"],
         url=job["url"],
         config=config,
+        user_id=current_user.get("user_id"),
     )
-    
+
     run_job_async(new_id)
-    
+
     return _job_to_response(new_job)
 
 
 @router.delete("/{job_id}", response_model=SuccessResponse)
-async def delete_job(job_id: str) -> SuccessResponse:
+async def delete_job(job_id: str, current_user: dict = Depends(require_any_auth)) -> SuccessResponse:
     """Delete a job and its output files."""
     job = db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    
+    _check_job_ownership(job, current_user)
+
     # Delete from database
     db.delete_job(job_id)
-    
+
     # Refresh schedules
     refresh_schedules()
-    
+
     # Clean up output directory
     output_dir = job.get("output_dir")
     if output_dir and os.path.exists(output_dir):
@@ -143,21 +164,22 @@ async def delete_job(job_id: str) -> SuccessResponse:
             shutil.rmtree(output_dir, ignore_errors=True)
         except Exception:
             pass
-    
+
     return SuccessResponse(message=f"Job {job_id} deleted successfully")
 
 
 @router.get("/{job_id}/results", response_model=JobResultsResponse)
-async def get_job_results(job_id: str) -> JobResultsResponse:
+async def get_job_results(job_id: str, current_user: dict = Depends(require_any_auth)) -> JobResultsResponse:
     """Get results/files for a completed job."""
     job = db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    
+    _check_job_ownership(job, current_user)
+
     output_dir = job.get("output_dir", "")
     files: List[Dict[str, Any]] = []
     results: Optional[Any] = None
-    
+
     if output_dir and os.path.isdir(output_dir):
         for root, dirs, fnames in os.walk(output_dir):
             for f in sorted(fnames):
@@ -170,14 +192,14 @@ async def get_job_results(job_id: str) -> JobResultsResponse:
                     "size": size,
                     "type": rel.split(".")[-1] if "." in rel else "",
                 })
-        
+
         # Load results.json if exists
         json_path = os.path.join(output_dir, "results.json")
         if os.path.exists(json_path):
             try:
                 with open(json_path) as f:
                     data = json.load(f)
-                
+
                 # Try to get extracted content
                 if isinstance(data, list) and data:
                     ext = data[0].get("extracted", "")
@@ -190,7 +212,7 @@ async def get_job_results(job_id: str) -> JobResultsResponse:
                         results = ext
             except Exception:
                 pass
-    
+
     # Include Vercel Blob URLs if they were stored on the job record
     raw_blob_urls = job.get("blob_urls")
     blob_urls: Optional[Dict[str, str]] = None
