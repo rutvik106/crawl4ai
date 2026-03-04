@@ -52,6 +52,7 @@ class EmailOutput(OutputBackend):
         from_addr: str = "",
         use_tls: bool = True,
         sendgrid_api_key: str = "",
+        ai_summary: str = "",
     ) -> None:
         self.to = to
         self.subject = subject
@@ -62,6 +63,7 @@ class EmailOutput(OutputBackend):
         self.from_addr = from_addr or smtp_user
         self.use_tls = use_tls
         self.sendgrid_api_key = sendgrid_api_key or os.getenv("SENDGRID_API_KEY", "")
+        self.ai_summary = ai_summary
         self._results: List[Dict[str, Any]] = []
 
     def save(self, result: CrawlResult, metadata: Optional[Dict[str, Any]] = None) -> None:
@@ -224,6 +226,18 @@ class EmailOutput(OutputBackend):
             links = " · ".join(f"<a href='{u}' style='color:#1a73e8;text-decoration:none;'>{u.split('//')[1].split('/')[0]}</a>" for u in sources_seen)
             sources_html = f"<p style='font-size:12px;color:#888;'>Sources: {links}</p>"
 
+        # AI summary block (only rendered when a summary was generated)
+        summary_html = ""
+        if self.ai_summary:
+            summary_html = f"""
+            <div style="background:#f0f7ff;border-left:4px solid #1a73e8;border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:20px;">
+                <div style="font-size:12px;font-weight:700;color:#1a73e8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">
+                    AI Summary
+                </div>
+                <p style="margin:0;font-size:14px;color:#333;line-height:1.6;">{self.ai_summary}</p>
+            </div>
+            """
+
         return f"""
         <html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; color:#333; max-width:600px; margin:0 auto; padding:20px;">
         <div style="border-bottom:2px solid #1a73e8;padding-bottom:12px;margin-bottom:20px;">
@@ -232,6 +246,7 @@ class EmailOutput(OutputBackend):
                 {ts} · {len(all_items)} articles from {len(sources_seen)} source{'s' if len(sources_seen) != 1 else ''}
             </p>
         </div>
+        {summary_html}
         {articles_html}
         <div style="border-top:1px solid #eee;padding-top:12px;margin-top:20px;">
             {sources_html}
