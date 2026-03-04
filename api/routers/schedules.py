@@ -47,6 +47,8 @@ def _schedule_to_response(sched: Dict[str, Any]) -> ScheduleResponse:
         created_at=str(sched["created_at"]) if sched.get("created_at") else None,
         config=_parse_config(sched.get("config")),
         user_id=sched.get("user_id"),
+        consolidated_frequency=sched.get("consolidated_frequency"),
+        consolidated_last_sent=str(sched["consolidated_last_sent"]) if sched.get("consolidated_last_sent") else None,
     )
 
 
@@ -87,6 +89,10 @@ async def create_schedule(
     current_user: dict = Depends(require_any_auth),
 ) -> ScheduleResponse:
     """Create a new recurring schedule."""
+    freq = request.consolidated_frequency
+    if freq not in ("weekly", "monthly"):
+        freq = None
+
     schedule_id = db.create_schedule(
         job_name=request.job_name,
         url=request.url,
@@ -94,6 +100,7 @@ async def create_schedule(
         cron=request.cron,
         recipients=request.recipients,
         user_id=current_user.get("user_id"),
+        consolidated_frequency=freq,
     )
 
     if not request.enabled:
@@ -192,3 +199,36 @@ async def delete_schedule(
     threading.Thread(target=_refresh, daemon=True).start()
 
     return SuccessResponse(message=f"Schedule {schedule_id} deleted successfully")
+
+
+@router.post("/{schedule_id}/consolidated/send-now", response_model=SuccessResponse)
+async def send_consolidated_report_now(
+    schedule_id: int, current_user: dict = Depends(require_any_auth)
+) -> SuccessResponse:
+    """Trigger an on-demand consolidated report for a schedule, regardless of cadence."""
+    sched = db.get_schedule_by_id(schedule_id)
+    if not sched:
+        raise HTTPException(status_code=404, detail=f"Schedule {schedule_id} not found")
+    _check_schedule_ownership(sched, current_user)
+
+    if not sched.get("consolidated_frequency"):
+        raise HTTPException(
+            status_code=400,
+            detail="This schedule does not have consolidated reporting enabled",
+        )
+
+    def _dispatch():
+        import asyncio
+        from dashboard.consolidated import generate_and_send_consolidated_report
+        settings = db.get_all_settings()
+        try:
+            asyncio.run(generate_and_send_consolidated_report(sched, settings))
+        except Exception as e:
+            print(f"[schedules] On-demand consolidated report for {schedule_id} failed: {e}")
+
+    threading.Thread(target=_dispatch, daemon=True).start()
+
+    return SuccessResponse(
+        message=f"Consolidated report generation started for schedule {schedule_id}",
+        data={"schedule_id": schedule_id},
+    )

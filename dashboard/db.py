@@ -88,7 +88,9 @@ def init_db() -> None:
                 error TEXT,
                 output_dir TEXT,
                 blob_urls JSONB,
-                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                schedule_id INTEGER,
+                extracted_articles JSONB
             )
         """)
 
@@ -98,6 +100,12 @@ def init_db() -> None:
         """)
         cursor.execute("""
             ALTER TABLE jobs ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+        """)
+        cursor.execute("""
+            ALTER TABLE jobs ADD COLUMN IF NOT EXISTS schedule_id INTEGER
+        """)
+        cursor.execute("""
+            ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extracted_articles JSONB
         """)
 
         # Create schedules table
@@ -113,13 +121,21 @@ def init_db() -> None:
                 last_run TIMESTAMP WITH TIME ZONE,
                 next_run TIMESTAMP WITH TIME ZONE,
                 created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+                user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                consolidated_frequency TEXT,
+                consolidated_last_sent TIMESTAMP WITH TIME ZONE
             )
         """)
 
-        # Migration for existing schedules tables
+        # Migrations for existing schedules tables
         cursor.execute("""
             ALTER TABLE schedules ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+        """)
+        cursor.execute("""
+            ALTER TABLE schedules ADD COLUMN IF NOT EXISTS consolidated_frequency TEXT
+        """)
+        cursor.execute("""
+            ALTER TABLE schedules ADD COLUMN IF NOT EXISTS consolidated_last_sent TIMESTAMP WITH TIME ZONE
         """)
 
         # Create settings table
@@ -145,24 +161,25 @@ def create_job(
     config: Dict[str, Any],
     output_dir: str = "",
     user_id: Optional[int] = None,
+    schedule_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     init_db()  # Ensure DB is initialized
     now = datetime.now()
     with _cursor() as cur:
         cur.execute(
             """
-            INSERT INTO jobs (id, name, url, config, status, created_at, output_dir, user_id)
-            VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s)
+            INSERT INTO jobs (id, name, url, config, status, created_at, output_dir, user_id, schedule_id)
+            VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s, %s)
             """,
-            (job_id, name, url, json.dumps(config), now, output_dir, user_id),
+            (job_id, name, url, json.dumps(config), now, output_dir, user_id, schedule_id),
         )
-    return {"id": job_id, "name": name, "url": url, "status": "pending", "created_at": now.isoformat(), "user_id": user_id}
+    return {"id": job_id, "name": name, "url": url, "status": "pending", "created_at": now.isoformat(), "user_id": user_id, "schedule_id": schedule_id}
 
 
 def update_job(job_id: str, **fields) -> None:
     init_db()  # Ensure DB is initialized
     allowed_fields = {'name', 'url', 'config', 'status', 'started_at', 'finished_at',
-                      'article_count', 'error', 'output_dir', 'blob_urls'}
+                      'article_count', 'error', 'output_dir', 'blob_urls', 'extracted_articles'}
 
     sets = []
     vals = []
@@ -171,6 +188,8 @@ def update_job(job_id: str, **fields) -> None:
             sets.append(f"{k} = %s")
             if k in ('config', 'blob_urls') and isinstance(v, dict):
                 vals.append(json.dumps(v))
+            elif k == 'extracted_articles':
+                vals.append(json.dumps(v) if not isinstance(v, str) else v)
             elif k in ('started_at', 'finished_at') and v is not None:
                 vals.append(v if isinstance(v, datetime) else datetime.fromisoformat(v))
             else:
@@ -226,17 +245,18 @@ def create_schedule(
     cron: str,
     recipients: str,
     user_id: Optional[int] = None,
+    consolidated_frequency: Optional[str] = None,
 ) -> int:
     init_db()  # Ensure DB is initialized
     now = datetime.now()
     with _cursor() as cur:
         cur.execute(
             """
-            INSERT INTO schedules (job_name, url, config, cron, recipients, created_at, user_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO schedules (job_name, url, config, cron, recipients, created_at, user_id, consolidated_frequency)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (job_name, url, json.dumps(config), cron, recipients, now, user_id),
+            (job_name, url, json.dumps(config), cron, recipients, now, user_id, consolidated_frequency or None),
         )
         schedule_id = cur.fetchone()[0]
     return schedule_id
@@ -268,7 +288,8 @@ def get_schedule_by_id(schedule_id: int) -> Optional[Dict[str, Any]]:
 def update_schedule(schedule_id: int, **fields) -> None:
     init_db()  # Ensure DB is initialized
     allowed_fields = {'job_name', 'url', 'config', 'cron', 'recipients',
-                      'enabled', 'last_run', 'next_run'}
+                      'enabled', 'last_run', 'next_run', 'consolidated_last_sent',
+                      'consolidated_frequency'}
 
     sets = []
     vals = []
@@ -277,7 +298,7 @@ def update_schedule(schedule_id: int, **fields) -> None:
             sets.append(f"{k} = %s")
             if k == 'config' and isinstance(v, dict):
                 vals.append(json.dumps(v))
-            elif k in ('last_run', 'next_run') and v is not None:
+            elif k in ('last_run', 'next_run', 'consolidated_last_sent') and v is not None:
                 vals.append(v if isinstance(v, datetime) else datetime.fromisoformat(v))
             else:
                 vals.append(v)
@@ -294,6 +315,51 @@ def delete_schedule(schedule_id: int) -> None:
     init_db()  # Ensure DB is initialized
     with _cursor() as cur:
         cur.execute("DELETE FROM schedules WHERE id = %s", (schedule_id,))
+
+
+def list_schedules_with_consolidated() -> List[Dict[str, Any]]:
+    """Return all enabled schedules that have a consolidated_frequency set."""
+    init_db()
+    with _cursor(RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT * FROM schedules
+            WHERE enabled = 1 AND consolidated_frequency IS NOT NULL
+            ORDER BY id
+            """
+        )
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_jobs_for_schedule(
+    schedule_id: int,
+    since: Optional[datetime] = None,
+) -> List[Dict[str, Any]]:
+    """Return all completed jobs that belong to a given schedule, optionally since a date."""
+    init_db()
+    with _cursor(RealDictCursor) as cur:
+        if since is not None:
+            cur.execute(
+                """
+                SELECT * FROM jobs
+                WHERE schedule_id = %s AND status IN ('completed', 'completed_empty')
+                  AND created_at >= %s
+                ORDER BY created_at ASC
+                """,
+                (schedule_id, since),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT * FROM jobs
+                WHERE schedule_id = %s AND status IN ('completed', 'completed_empty')
+                ORDER BY created_at ASC
+                """,
+                (schedule_id,),
+            )
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
 
 
 # ---- Settings ----

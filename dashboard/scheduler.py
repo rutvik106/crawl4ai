@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -44,6 +45,7 @@ def _load_schedules() -> None:
     print(f"[scheduler] Found {len(schedules)} schedules ({len(enabled)} enabled)")
     for sched in enabled:
         _add_schedule_job(sched)
+    _register_consolidated_check()
 
 
 def _add_schedule_job(sched: dict) -> None:
@@ -109,13 +111,14 @@ def _execute_scheduled_job(sched: dict) -> None:
         # Fall back to the original config if there was an error
         config = json.loads(sched["config"]) if isinstance(sched["config"], str) else sched["config"]
 
-    # Create a new job entry
+    # Create a new job entry, linking it to this schedule for consolidated reporting
     job_id = generate_job_id()
     db.create_job(
         job_id=job_id,
         name=f"{sched['job_name']} (scheduled)",
         url=sched["url"],
         config=config,
+        schedule_id=sched.get("id"),
     )
 
     # Update last_run
@@ -131,18 +134,74 @@ def _execute_scheduled_job(sched: dict) -> None:
     run_job_async(job_id)
 
 
+def _register_consolidated_check() -> None:
+    """Register the nightly job that fires consolidated reports when due."""
+    scheduler = get_scheduler()
+    if scheduler.get_job("consolidated_check"):
+        return
+    scheduler.add_job(
+        _run_consolidated_checks,
+        trigger=CronTrigger(hour=23, minute=30),
+        id="consolidated_check",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    print("[scheduler] Registered nightly consolidated check (23:30)")
+
+
+def _run_consolidated_checks() -> None:
+    """Nightly check: fire consolidated reports for weekly/monthly schedules that are due."""
+    now = datetime.now()
+    today_weekday = now.weekday()   # Monday=0 … Sunday=6
+    is_last_day_of_month = (now + timedelta(days=1)).month != now.month
+
+    schedules = db.list_schedules_with_consolidated()
+    print(f"[scheduler] Consolidated check: {len(schedules)} schedule(s) with reports enabled")
+
+    for sched in schedules:
+        freq = sched.get("consolidated_frequency")
+        last_sent = sched.get("consolidated_last_sent")
+
+        should_send = False
+        if freq == "weekly" and today_weekday == 6:   # Sunday
+            if last_sent is None or (now - last_sent).days >= 6:
+                should_send = True
+        elif freq == "monthly" and is_last_day_of_month:
+            if last_sent is None or (now - last_sent).days >= 27:
+                should_send = True
+
+        if should_send:
+            print(f"[scheduler] Triggering consolidated {freq} report for schedule {sched['id']} ({sched.get('job_name')})")
+            _dispatch_consolidated_report(sched)
+
+
+def _dispatch_consolidated_report(sched: dict) -> None:
+    """Run consolidated report generation in a background thread."""
+    import threading
+
+    def _run():
+        from dashboard.consolidated import generate_and_send_consolidated_report
+        settings = db.get_all_settings()
+        try:
+            asyncio.run(generate_and_send_consolidated_report(sched, settings))
+        except Exception as e:
+            print(f"[scheduler] Consolidated report for schedule {sched['id']} failed: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def refresh_schedules() -> None:
     """Reload all schedules from DB (call after creating/updating/deleting)."""
     scheduler = get_scheduler()
 
-    # Remove all schedule_ jobs
+    # Remove all schedule_ jobs (but keep consolidated_check)
     for job in scheduler.get_jobs():
         if job.id.startswith("schedule_"):
             scheduler.remove_job(job.id)
 
     # Re-load
     _load_schedules()
-    
+
     print(f"[scheduler] Refreshed schedules, active jobs: {len(scheduler.get_jobs())}")
 
 
