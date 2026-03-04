@@ -353,6 +353,9 @@ async def _execute_job(job_id: str) -> None:
             "finished_at": datetime.now().isoformat(),
             "article_count": article_count,
         }
+        # Persist extracted articles for consolidated report retrieval
+        if isinstance(articles, list) and article_count > 0:
+            update_kwargs["extracted_articles"] = articles
         if blob_backend.uploaded_urls:
             update_kwargs["blob_urls"] = blob_backend.uploaded_urls
             _log(f"[engine] Job {job_id}: blob URLs stored: {blob_backend.uploaded_urls}")

@@ -63,6 +63,7 @@ class ScheduleCreateRequest(BaseModel):
     cron: str = Field(..., description="Cron expression")
     recipients: str = Field("", description="Email recipients")
     enabled: bool = Field(True, description="Whether schedule is enabled")
+    consolidated_frequency: Optional[str] = Field(None, description="Consolidated report cadence: 'weekly', 'monthly', or null")
 
 
 class ScheduleResponse(BaseModel):
@@ -78,6 +79,8 @@ class ScheduleResponse(BaseModel):
     created_at: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     user_id: Optional[int] = None
+    consolidated_frequency: Optional[str] = None
+    consolidated_last_sent: Optional[str] = None
 
 
 class ScheduleListResponse(BaseModel):
