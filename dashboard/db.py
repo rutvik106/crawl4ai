@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
@@ -69,7 +69,8 @@ def init_db() -> None:
                 role TEXT NOT NULL DEFAULT 'user',
                 created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                expires_at TIMESTAMP WITH TIME ZONE
             )
         """)
 
@@ -136,6 +137,11 @@ def init_db() -> None:
         """)
         cursor.execute("""
             ALTER TABLE schedules ADD COLUMN IF NOT EXISTS consolidated_last_sent TIMESTAMP WITH TIME ZONE
+        """)
+
+        # Migration: add expires_at to users if it doesn't exist yet
+        cursor.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE
         """)
 
         # Create settings table
@@ -401,17 +407,18 @@ def create_user(
     role: str = "user",
     email: Optional[str] = None,
     created_by: Optional[int] = None,
+    expires_at: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """Insert a new user record and return it."""
     init_db()
     with _cursor(RealDictCursor) as cur:
         cur.execute(
             """
-            INSERT INTO users (username, email, password_hash, role, created_by)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO users (username, email, password_hash, role, created_by, expires_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
-            (username, email, password_hash, role, created_by),
+            (username, email, password_hash, role, created_by, expires_at),
         )
         row = cur.fetchone()
     return dict(row)
@@ -453,12 +460,15 @@ def list_users(created_by: Optional[int] = None) -> List[Dict[str, Any]]:
 def update_user(user_id: int, **fields) -> None:
     """Update allowed fields on a user record."""
     init_db()
-    allowed = {"username", "email", "password_hash", "role", "is_active"}
+    allowed = {"username", "email", "password_hash", "role", "is_active", "expires_at"}
     sets, vals = [], []
     for k, v in fields.items():
         if k in allowed:
             sets.append(f"{k} = %s")
-            vals.append(v)
+            if k == "expires_at" and v is not None and not isinstance(v, datetime):
+                vals.append(datetime.fromisoformat(str(v)))
+            else:
+                vals.append(v)
     if not sets:
         return
     vals.append(user_id)
@@ -488,6 +498,51 @@ def delete_user(user_id: int) -> None:
     init_db()
     with _cursor() as cur:
         cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+
+
+def list_expired_users() -> List[Dict[str, Any]]:
+    """Return active non-super_admin users whose expires_at is in the past."""
+    init_db()
+    now = datetime.now(timezone.utc)
+    with _cursor(RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT * FROM users
+            WHERE is_active = TRUE
+              AND expires_at IS NOT NULL
+              AND expires_at < %s
+              AND role != 'super_admin'
+            """,
+            (now,),
+        )
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+def disable_schedules_for_user(user_id: int) -> List[int]:
+    """Disable all enabled schedules owned by user. Returns list of disabled schedule IDs."""
+    init_db()
+    with _cursor(RealDictCursor) as cur:
+        cur.execute(
+            "UPDATE schedules SET enabled = 0 WHERE user_id = %s AND enabled = 1 RETURNING id",
+            (user_id,),
+        )
+        rows = cur.fetchall()
+    return [r["id"] for r in rows]
+
+
+def cancel_pending_jobs_for_user(user_id: int) -> int:
+    """Cancel all pending/running jobs for a user. Returns count cancelled."""
+    init_db()
+    with _cursor() as cur:
+        cur.execute(
+            """
+            UPDATE jobs SET status = 'cancelled'
+            WHERE user_id = %s AND status IN ('pending', 'running')
+            """,
+            (user_id,),
+        )
+        return cur.rowcount
 
 
 # Lazy initialization - init_db() is now called by each function when needed
