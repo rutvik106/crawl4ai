@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
@@ -45,6 +47,17 @@ async def login(request: LoginRequest) -> LoginResponse:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is disabled. Contact your administrator.",
         )
+
+    expires_at = user.get("expires_at")
+    if expires_at is not None:
+        now = datetime.now(timezone.utc)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if now > expires_at:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account access has expired. Contact your administrator.",
+            )
 
     token = create_access_token(
         {

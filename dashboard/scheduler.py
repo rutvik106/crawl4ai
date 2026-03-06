@@ -46,6 +46,7 @@ def _load_schedules() -> None:
     for sched in enabled:
         _add_schedule_job(sched)
     _register_consolidated_check()
+    _register_expiry_check()
 
 
 def _add_schedule_job(sched: dict) -> None:
@@ -188,6 +189,54 @@ def _dispatch_consolidated_report(sched: dict) -> None:
             print(f"[scheduler] Consolidated report for schedule {sched['id']} failed: {e}")
 
     threading.Thread(target=_run, daemon=True).start()
+
+
+def _register_expiry_check() -> None:
+    """Register an hourly job that revokes access for expired users."""
+    scheduler = get_scheduler()
+    if scheduler.get_job("expiry_check"):
+        return
+    scheduler.add_job(
+        _run_expiry_checks,
+        trigger=CronTrigger(minute=0),  # top of every hour
+        id="expiry_check",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    print("[scheduler] Registered hourly expiry check")
+
+
+def _run_expiry_checks() -> None:
+    """Find users whose access has expired and stop all their resources."""
+    expired_users = db.list_expired_users()
+    if not expired_users:
+        return
+
+    print(f"[scheduler] Expiry check: found {len(expired_users)} expired user(s)")
+    scheduler = get_scheduler()
+
+    for user in expired_users:
+        user_id = user["id"]
+        username = user.get("username", f"id={user_id}")
+        print(f"[scheduler] Revoking access for expired user '{username}' (id={user_id})")
+
+        # 1. Disable the account so they can no longer log in
+        db.update_user(user_id, is_active=False)
+
+        # 2. Disable all their schedules in DB and remove from APScheduler
+        disabled_ids = db.disable_schedules_for_user(user_id)
+        for sched_id in disabled_ids:
+            job_id = f"schedule_{sched_id}"
+            existing = scheduler.get_job(job_id)
+            if existing:
+                scheduler.remove_job(job_id)
+        if disabled_ids:
+            print(f"[scheduler] Disabled {len(disabled_ids)} schedule(s) for user '{username}'")
+
+        # 3. Cancel any pending/running jobs
+        cancelled = db.cancel_pending_jobs_for_user(user_id)
+        if cancelled:
+            print(f"[scheduler] Cancelled {cancelled} job(s) for user '{username}'")
 
 
 def refresh_schedules() -> None:
