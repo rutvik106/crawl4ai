@@ -5,12 +5,16 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 import threading
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from queue import Queue
 from typing import Any, Dict, List, Optional, Set, Tuple
+
+# IST timezone (Asia/Kolkata, UTC+5:30)
+_IST = timezone(timedelta(hours=5, minutes=30))
 
 # Set to track running job IDs and prevent duplicates
 _running_jobs: Set[str] = set()
@@ -48,6 +52,75 @@ from crawl4ai.output.base import OutputManager
 from crawl4ai.output.vercel_blob_output import VercelBlobOutput
 
 from . import db
+
+
+def _is_today_article(item: dict, today: "datetime.date") -> bool:
+    """Return True if the article appears to have been published today (IST).
+
+    Decision logic (in priority order):
+    1. seconds / minutes / hours ago  → today  (hours capped at 23)
+    2. "just now" / "today"           → today
+    3. "yesterday" / "X day(s) ago"   → not today
+    4. "week" / "month" / "year"      → not today
+    5. Recognisable date string       → compare with today's date
+    6. No usable date info            → include by default (don't silently drop)
+    """
+    raw = (
+        str(item.get("time_ago") or "")
+        + " "
+        + str(item.get("published_date") or "")
+    ).lower().strip()
+
+    if not raw.strip():
+        return True  # no date info → keep
+
+    # ── clearly today ──────────────────────────────────────────────────────
+    if re.search(r"\bjust now\b|\bmoments? ago\b|\btoday\b", raw):
+        return True
+    if re.search(r"\b\d+\s*s(ec(ond)?s?)?\b|\b\d+\s*min(ute)?s?\s*ago\b", raw):
+        return True
+    m = re.search(r"\b(\d+)\s*h(our)?s?\s*(ago)?\b", raw)
+    if m:
+        return int(m.group(1)) <= 23
+
+    # ── clearly NOT today ──────────────────────────────────────────────────
+    if re.search(r"\byesterday\b", raw):
+        return False
+    if re.search(r"\b([1-9]\d*)\s*days?\s*ago\b", raw):
+        return False
+    if re.search(r"\bweeks?\b|\bmonths?\b|\byears?\b", raw):
+        return False
+
+    # ── try to match a specific date ───────────────────────────────────────
+    month_names = [
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december",
+    ]
+    month_abbrs = [m[:3] for m in month_names]
+
+    today_patterns = [
+        today.strftime("%Y-%m-%d"),          # 2026-03-19
+        today.strftime("%d/%m/%Y"),           # 19/03/2026
+        today.strftime("%m/%d/%Y"),           # 03/19/2026
+        today.strftime("%B %d, %Y").lower(),  # march 19, 2026
+        today.strftime("%b %d, %Y").lower(),  # mar 19, 2026
+        today.strftime("%d %B %Y").lower(),   # 19 march 2026
+        today.strftime("%-d %B %Y").lower(),  # 19 march 2026 (no leading zero)
+        str(today.day),                       # bare day number (last resort)
+    ]
+    for pat in today_patterns[:-1]:          # all except bare day
+        if pat in raw:
+            return True
+
+    # If any month name appears but none of today's patterns matched → not today
+    if any(m in raw for m in month_names + month_abbrs):
+        return False
+
+    # Bare day number match (only when no other month context exists)
+    if today_patterns[-1] in raw:
+        return True
+
+    return True  # unknown format → keep by default
 
 
 def _log(msg: str) -> None:
@@ -211,6 +284,10 @@ async def _execute_job(job_id: str) -> None:
         block_images=config.get("block_images", True),
     )
 
+    # Today's date in IST — used in the extraction instruction and post-filter
+    today_ist = datetime.now(_IST)
+    today_str = today_ist.strftime("%B %-d, %Y")  # e.g. "March 19, 2026"
+
     # Schema fields
     schema_fields = config.get("schema_fields", {})
     if not schema_fields:
@@ -219,13 +296,25 @@ async def _execute_job(job_id: str) -> None:
             "properties": {
                 "title": {"type": "string", "description": "The news headline"},
                 "source": {"type": "string", "description": "Publisher name"},
-                "category": {"type": "string", "description": "Category"},
+                "category": {"type": "string", "description": "Topic category"},
                 "summary": {"type": "string", "description": "One-sentence summary"},
+                "time_ago": {"type": "string", "description": "How long ago it was published, e.g. '2 hours ago', '30 minutes ago'"},
+                "published_date": {"type": "string", "description": "The publication date if explicitly shown, e.g. 'March 19, 2026' or '2026-03-19'"},
             },
             "required": ["title"],
         }
 
     # LLM extraction
+    default_instruction = (
+        f"Today's date is {today_str} (IST, Asia/Kolkata). "
+        f"Extract ONLY actual news articles that were published TODAY ({today_str}). "
+        "DO NOT include articles from yesterday or any earlier date. "
+        "Ignore ads, promotions, newsletters, events, navigation links, and category labels. "
+        "For each article include: title, source, category, summary, time_ago (e.g. '2 hours ago'), "
+        "and published_date (the exact date shown on the article, if visible). "
+        "If an article has no visible publication date or time, include it only if it appears to be recent/today. "
+        "Return a JSON array containing only today's articles."
+    )
     extraction = LLMExtractionStrategy(
         llm_config=LLMConfig(
             provider=config.get("llm_provider", "groq/llama-3.1-8b-instant"),
@@ -233,11 +322,7 @@ async def _execute_job(job_id: str) -> None:
         ),
         schema=schema_fields,
         extraction_type="schema",
-        instruction=config.get("extraction_instruction", (
-            "Extract ONLY actual news articles. Ignore ads, promos, newsletters, "
-            "events, navigation, category labels. For each article, get title, source, "
-            "category, and summary. Return a JSON array."
-        )),
+        instruction=config.get("extraction_instruction") or default_instruction,
         extra_args={"temperature": 0, "max_tokens": 4000},
         content_length_limit=int(config.get("content_limit", 12000)),
     )
@@ -288,6 +373,22 @@ async def _execute_job(job_id: str) -> None:
         # Parse and count articles
         from crawl4ai.output.email_output import EmailOutput as EO
         articles = EO._parse_extracted(extracted)
+
+        # ── Today-only post-filter (safety net on top of LLM instruction) ──
+        if isinstance(articles, list) and articles:
+            today_date = today_ist.date()
+            before_count = len(articles)
+            articles = [
+                a for a in articles
+                if isinstance(a, dict) and _is_today_article(a, today_date)
+            ]
+            dropped = before_count - len(articles)
+            if dropped:
+                _log(f"[engine] Job {job_id}: post-filter dropped {dropped} non-today articles "
+                     f"({len(articles)} remain for {today_str})")
+            # Re-serialise filtered list so it's what gets stored & emailed
+            extracted = json.dumps(articles)
+
         article_count = len(articles) if isinstance(articles, list) else 0
         _log(f"[engine] Job {job_id} step 5/5: saving {article_count} articles to outputs...")
 
