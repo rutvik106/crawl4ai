@@ -141,16 +141,6 @@ async def generate_and_send_consolidated_report(
         return
 
     # Build and send the email
-    smtp_host = settings.get("smtp_host", os.getenv("SMTP_HOST", ""))
-    smtp_port = int(settings.get("smtp_port", os.getenv("SMTP_PORT", "587")))
-    smtp_user = settings.get("smtp_user", os.getenv("SMTP_USER", ""))
-    smtp_password = settings.get("smtp_password", os.getenv("SMTP_PASSWORD", ""))
-    sendgrid_key = settings.get("sendgrid_api_key", os.getenv("SENDGRID_API_KEY", ""))
-
-    if not smtp_host and not sendgrid_key:
-        _log("[consolidated] No SMTP or SendGrid configured, cannot send email")
-        return
-
     subject = (
         f"Consolidated {period_label.capitalize()} Report – "
         f"{schedule.get('job_name', 'Crawl4AI')} ({date_range})"
@@ -169,13 +159,10 @@ async def generate_and_send_consolidated_report(
     mailer = EmailOutput(
         to=recipients,
         subject=subject,
-        smtp_host=smtp_host,
-        smtp_port=smtp_port,
-        smtp_user=smtp_user,
-        smtp_password=smtp_password,
-        sendgrid_api_key=sendgrid_key,
     )
-    mailer._send(html_body)
+    recipient_list = [e.strip() for e in recipients.split(",") if e.strip()]
+    for recipient in recipient_list:
+        mailer._send_via_api(recipient, html_body)
     _log(f"[consolidated] Report sent to {recipients} ({len(all_articles)} articles, {len(jobs)} runs)")
 
     # Record the send time so we don't double-send

@@ -100,10 +100,6 @@ class SettingsResponse(BaseModel):
     """Response model for settings."""
     groq_api_key: str = ""
     llm_provider: str = "groq/llama-3.1-8b-instant"
-    smtp_host: str = ""
-    smtp_port: str = "587"
-    smtp_user: str = ""
-    smtp_password: str = ""
     default_max_scrolls: int = 10
     default_max_inner_pages: int = 5
     default_content_limit: int = 12000
@@ -113,10 +109,6 @@ class SettingsUpdateRequest(BaseModel):
     """Request model for updating settings."""
     groq_api_key: Optional[str] = None
     llm_provider: Optional[str] = None
-    smtp_host: Optional[str] = None
-    smtp_port: Optional[str] = None
-    smtp_user: Optional[str] = None
-    smtp_password: Optional[str] = None
     default_max_scrolls: Optional[int] = None
     default_max_inner_pages: Optional[int] = None
     default_content_limit: Optional[int] = None
