@@ -53,8 +53,8 @@ def _job_to_response(job: Dict[str, Any]) -> JobResponse:
 
 
 def _check_job_ownership(job: Dict[str, Any], current_user: dict) -> None:
-    """Raise 403 if a regular user tries to access a job they don't own."""
-    if current_user.get("role") in _ADMIN_ROLES:
+    """Raise 403 if user tries to access a job they don't own. Only super_admin bypasses this."""
+    if current_user.get("role") == "super_admin":
         return
     if job.get("user_id") != current_user.get("user_id"):
         raise HTTPException(status_code=403, detail="Access denied: you do not own this job")
@@ -66,8 +66,8 @@ async def list_jobs(
     limit: int = Query(50, ge=1, le=100, description="Maximum number of jobs to return"),
     current_user: dict = Depends(require_any_auth),
 ) -> JobListResponse:
-    """List jobs. Admins see all jobs; regular users see only their own."""
-    user_id_filter = None if current_user.get("role") in _ADMIN_ROLES else current_user.get("user_id")
+    """List jobs. Super admins see all jobs; admins and regular users see only their own."""
+    user_id_filter = None if current_user.get("role") == "super_admin" else current_user.get("user_id")
     jobs = db.list_jobs(limit=limit, user_id=user_id_filter)
 
     if status:
