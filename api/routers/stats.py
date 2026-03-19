@@ -15,11 +15,17 @@ _ADMIN_ROLES = {"super_admin", "admin"}
 
 @router.get("", response_model=StatsResponse)
 async def get_stats(current_user: dict = Depends(require_any_auth)) -> StatsResponse:
-    """Get dashboard statistics scoped to the current user (only super_admin sees all)."""
-    user_id_filter = None if current_user.get("role") == "super_admin" else current_user.get("user_id")
+    """Get dashboard statistics scoped to current user's visibility (super_admin sees all)."""
+    role = current_user.get("role")
+    if role == "super_admin":
+        user_ids_filter = None
+    elif role == "admin":
+        user_ids_filter = db.get_managed_user_ids(current_user.get("user_id"))
+    else:
+        user_ids_filter = [current_user.get("user_id")]
 
-    jobs = db.list_jobs(limit=1000, user_id=user_id_filter)
-    schedules = db.list_schedules(user_id=user_id_filter)
+    jobs = db.list_jobs(limit=1000, user_ids=user_ids_filter)
+    schedules = db.list_schedules(user_ids=user_ids_filter)
 
     total_jobs = len(jobs)
     running_jobs = sum(1 for j in jobs if j["status"] == "running")
