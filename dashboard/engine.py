@@ -168,14 +168,9 @@ async def _execute_job(job_id: str) -> None:
     _log(f"[engine] Job {job_id} starting for URL: {url}")
     db.update_job(job_id, status="running", started_at=datetime.now().isoformat())
 
-    # Load settings for API keys and SMTP
+    # Load settings for API keys
     settings = db.get_all_settings()
     groq_key = settings.get("groq_api_key", os.getenv("GROQ_API_KEY", ""))
-    smtp_host = settings.get("smtp_host", os.getenv("SMTP_HOST", ""))
-    smtp_port = int(settings.get("smtp_port", os.getenv("SMTP_PORT", "587")))
-    smtp_user = settings.get("smtp_user", os.getenv("SMTP_USER", ""))
-    smtp_password = settings.get("smtp_password", os.getenv("SMTP_PASSWORD", ""))
-    sendgrid_key = settings.get("sendgrid_api_key", os.getenv("SENDGRID_API_KEY", ""))
 
     # Build output directory with absolute path to avoid relative path issues
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -192,12 +187,7 @@ async def _execute_job(job_id: str) -> None:
         job_id=job_id,
         title=job["name"],
         email_to=recipients if recipients else None,
-        smtp_host=smtp_host if recipients else None,
-        smtp_port=smtp_port,
-        smtp_user=smtp_user,
-        smtp_password=smtp_password,
         email_subject=email_subject,
-        sendgrid_api_key=sendgrid_key,
     )
 
     # Vercel Blob Storage — upload artifacts after local backends write them
@@ -211,7 +201,7 @@ async def _execute_job(job_id: str) -> None:
 
     backend_names = [type(b).__name__ for b in outputs]
     print(f"[engine] Job {job_id}: backends={backend_names}")
-    print(f"[engine]   recipients={recipients!r}, smtp_host={smtp_host!r}, smtp_user={smtp_user!r}")
+    print(f"[engine]   recipients={recipients!r}")
 
     # Browser config
     browser_conf = BrowserConfig(

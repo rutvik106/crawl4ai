@@ -1,43 +1,34 @@
-"""Email output backend — sends crawl results via SMTP or HTTP API."""
+"""Email output backend — sends crawl results via HTTP API."""
 
 from __future__ import annotations
 
 import json
-import os
-import smtplib
+import urllib.request
+import urllib.error
 from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
 from .base import OutputBackend
 from ..models import CrawlResult
 
+EMAIL_API_URL = "https://time-tracker-3-sigma.vercel.app/api/v1/users/emailsend"
+
 
 class EmailOutput(OutputBackend):
-    """Sends crawl results as an HTML email via SMTP.
+    """Sends crawl results as an HTML email via the email HTTP API.
 
     Results are accumulated and sent as a single email on ``finalize()``.
 
     Args:
-        to: Recipient email address.
+        to: Recipient email address(es), comma-separated.
         subject: Email subject line.
-        smtp_host: SMTP server hostname.
-        smtp_port: SMTP server port.
-        smtp_user: SMTP auth username.
-        smtp_password: SMTP auth password.
-        from_addr: Sender email address.
-        use_tls: Whether to use STARTTLS.
+        ai_summary: Optional AI-generated summary to include in the email.
 
     Usage::
 
         output = EmailOutput(
             to="you@email.com",
             subject="Daily News Crawl",
-            smtp_host="smtp.gmail.com",
-            smtp_port=587,
-            smtp_user="bot@gmail.com",
-            smtp_password="app-password",
         )
     """
 
@@ -45,24 +36,10 @@ class EmailOutput(OutputBackend):
         self,
         to: str = "",
         subject: str = "Crawl4AI Results",
-        smtp_host: str = "smtp.gmail.com",
-        smtp_port: int = 587,
-        smtp_user: str = "",
-        smtp_password: str = "",
-        from_addr: str = "",
-        use_tls: bool = True,
-        sendgrid_api_key: str = "",
         ai_summary: str = "",
     ) -> None:
         self.to = to
         self.subject = subject
-        self.smtp_host = smtp_host
-        self.smtp_port = smtp_port
-        self.smtp_user = smtp_user
-        self.smtp_password = smtp_password
-        self.from_addr = from_addr or smtp_user
-        self.use_tls = use_tls
-        self.sendgrid_api_key = sendgrid_api_key or os.getenv("SENDGRID_API_KEY", "")
         self.ai_summary = ai_summary
         self._results: List[Dict[str, Any]] = []
 
@@ -100,7 +77,6 @@ class EmailOutput(OutputBackend):
             return result
 
         # Fix unescaped quotes inside string values
-        # Pattern: find quotes that aren't structural (not after : or , or [ or { or before } ] , :)
         def _fix_inner_quotes(s: str) -> str:
             out = []
             in_string = False
@@ -162,11 +138,13 @@ class EmailOutput(OutputBackend):
         if not has_articles:
             print("[email] Skipping: no extracted articles to send")
             return
+
         recipients = [email.strip() for email in self.to.split(",") if email.strip()]
-        print(f"[email] Sending to {', '.join(recipients)} via {self.smtp_host}:{self.smtp_port} (from={self.from_addr})")
+        print(f"[email] Sending to {', '.join(recipients)} via email API")
         try:
             html_body = self._render_email()
-            self._send(html_body)
+            for recipient in recipients:
+                self._send_via_api(recipient, html_body)
             print(f"[email] Sent successfully to {', '.join(recipients)}")
         except Exception as e:
             print(f"[email] FAILED: {e}")
@@ -255,93 +233,27 @@ class EmailOutput(OutputBackend):
         </body></html>
         """
 
-    def _send(self, html_body: str) -> None:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = self.subject
-        msg["From"] = self.from_addr
-        msg["To"] = self.to
-        msg.attach(MIMEText(html_body, "html"))
-
-        # Split comma-separated recipients into a list
-        recipients = [email.strip() for email in self.to.split(",") if email.strip()]
-
-        # Try STARTTLS first, then SMTP_SSL, then SendGrid HTTP API
-        errors = []
-        
-        # Attempt 1: STARTTLS (port 587)
-        try:
-            print(f"[email] Trying STARTTLS on {self.smtp_host}:{self.smtp_port}...", flush=True)
-            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as server:
-                if self.use_tls:
-                    server.starttls()
-                if self.smtp_user and self.smtp_password:
-                    server.login(self.smtp_user, self.smtp_password)
-                server.sendmail(self.from_addr, recipients, msg.as_string())
-                print("[email] Sent via STARTTLS", flush=True)
-                return
-        except Exception as e:
-            errors.append(f"STARTTLS: {e}")
-            print(f"[email] STARTTLS failed: {e}", flush=True)
-
-        # Attempt 2: SMTP_SSL (port 465)
-        try:
-            ssl_port = 465
-            print(f"[email] Trying SMTP_SSL on {self.smtp_host}:{ssl_port}...", flush=True)
-            with smtplib.SMTP_SSL(self.smtp_host, ssl_port, timeout=15) as server:
-                if self.smtp_user and self.smtp_password:
-                    server.login(self.smtp_user, self.smtp_password)
-                server.sendmail(self.from_addr, recipients, msg.as_string())
-                print("[email] Sent via SMTP_SSL", flush=True)
-                return
-        except Exception as e:
-            errors.append(f"SMTP_SSL: {e}")
-            print(f"[email] SMTP_SSL failed: {e}", flush=True)
-
-        # Attempt 3: SendGrid HTTP API (port 443 - always open on Railway)
-        if self.sendgrid_api_key:
-            try:
-                print("[email] Trying SendGrid HTTP API...", flush=True)
-                self._send_sendgrid(html_body, recipients)
-                print("[email] Sent via SendGrid HTTP API", flush=True)
-                return
-            except Exception as e:
-                errors.append(f"SendGrid: {e}")
-                print(f"[email] SendGrid failed: {e}", flush=True)
-
-        # All methods failed
-        raise Exception(f"All email methods failed: {'; '.join(errors)}")
-
-    def _send_sendgrid(self, html_body: str, recipients: List[str]) -> None:
-        """Send email via SendGrid HTTP API (uses HTTPS port 443)."""
-        import urllib.request
-        import urllib.error
-
-        url = "https://api.sendgrid.com/v3/mail/send"
-        
-        # Build personalization for each recipient
-        personalizations = [{"to": [{"email": r}]} for r in recipients]
-        
-        data = {
-            "personalizations": personalizations,
-            "from": {"email": self.from_addr},
+    def _send_via_api(self, recipient: str, html_body: str) -> None:
+        """Send email via the HTTP API endpoint."""
+        payload = {
+            "to": recipient,
             "subject": self.subject,
-            "content": [{"type": "text/html", "value": html_body}],
+            "html": html_body,
+            "text": f"Crawl4AI Results - {self.subject}",
         }
 
         req = urllib.request.Request(
-            url,
-            data=json.dumps(data).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.sendgrid_api_key}",
-                "Content-Type": "application/json",
-            },
+            EMAIL_API_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
             method="POST",
         )
 
         try:
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status not in (200, 201, 202):
-                    raise Exception(f"SendGrid returned {response.status}")
+                    raise Exception(f"Email API returned {response.status}")
+                print(f"[email] API call succeeded for {recipient} (status={response.status})", flush=True)
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8")
-            raise Exception(f"SendGrid HTTP {e.code}: {body}")
+            raise Exception(f"Email API HTTP {e.code}: {body}")

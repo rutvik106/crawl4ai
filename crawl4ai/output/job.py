@@ -9,7 +9,6 @@ Usage::
 
     outputs = create_job_outputs(
         email_to="user@example.com",
-        smtp_host="smtp.zoho.in",
         ...
     )
     # Creates: output/20260207_210500_a3f2/
@@ -46,12 +45,13 @@ def create_job_outputs(
     job_id: Optional[str] = None,
     title: str = "Crawl4AI Report",
     email_to: Optional[str] = None,
+    email_subject: Optional[str] = None,
+    # Legacy SMTP params kept for backwards compatibility but ignored
     smtp_host: Optional[str] = None,
     smtp_port: int = 587,
     smtp_user: Optional[str] = None,
     smtp_password: Optional[str] = None,
     smtp_from: Optional[str] = None,
-    email_subject: Optional[str] = None,
     sendgrid_api_key: Optional[str] = None,
 ) -> tuple:
     """Create a full set of output backends under ``output/<job_id>/``.
@@ -75,16 +75,10 @@ def create_job_outputs(
         HTMLReportOutput(path=os.path.join(job_dir, "report.html"), title=title),
     ]
 
-    if email_to and smtp_host:
+    if email_to:
         backends.append(EmailOutput(
             to=email_to,
             subject=email_subject or f"Crawl4AI: {title}",
-            smtp_host=smtp_host,
-            smtp_port=smtp_port,
-            smtp_user=smtp_user or "",
-            smtp_password=smtp_password or "",
-            from_addr=smtp_from or smtp_user or "",
-            sendgrid_api_key=sendgrid_api_key or "",
         ))
 
     return job_id, job_dir, backends
