@@ -219,13 +219,13 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def list_jobs(limit: int = 50, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+def list_jobs(limit: int = 50, user_ids: Optional[List[int]] = None) -> List[Dict[str, Any]]:
     init_db()  # Ensure DB is initialized
     with _cursor(RealDictCursor) as cur:
-        if user_id is not None:
+        if user_ids is not None:
             cur.execute(
-                "SELECT * FROM jobs WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
-                (user_id, limit),
+                "SELECT * FROM jobs WHERE user_id = ANY(%s) ORDER BY created_at DESC LIMIT %s",
+                (user_ids, limit),
             )
         else:
             cur.execute(
@@ -240,6 +240,18 @@ def delete_job(job_id: str) -> None:
     init_db()  # Ensure DB is initialized
     with _cursor() as cur:
         cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+
+
+def get_managed_user_ids(admin_id: int) -> List[int]:
+    """Return [admin_id] + IDs of all users created by this admin."""
+    init_db()
+    with _cursor(RealDictCursor) as cur:
+        cur.execute(
+            "SELECT id FROM users WHERE created_by = %s",
+            (admin_id,),
+        )
+        rows = cur.fetchall()
+    return [admin_id] + [r["id"] for r in rows]
 
 
 # ---- Schedules ----
@@ -268,13 +280,13 @@ def create_schedule(
     return schedule_id
 
 
-def list_schedules(user_id: Optional[int] = None) -> List[Dict[str, Any]]:
+def list_schedules(user_ids: Optional[List[int]] = None) -> List[Dict[str, Any]]:
     init_db()  # Ensure DB is initialized
     with _cursor(RealDictCursor) as cur:
-        if user_id is not None:
+        if user_ids is not None:
             cur.execute(
-                "SELECT * FROM schedules WHERE user_id = %s ORDER BY created_at DESC",
-                (user_id,),
+                "SELECT * FROM schedules WHERE user_id = ANY(%s) ORDER BY created_at DESC",
+                (user_ids,),
             )
         else:
             cur.execute("SELECT * FROM schedules ORDER BY created_at DESC")

@@ -53,9 +53,15 @@ def _job_to_response(job: Dict[str, Any]) -> JobResponse:
 
 
 def _check_job_ownership(job: Dict[str, Any], current_user: dict) -> None:
-    """Raise 403 if user tries to access a job they don't own. Only super_admin bypasses this."""
-    if current_user.get("role") == "super_admin":
+    """Raise 403 if user tries to access a job outside their visibility scope."""
+    role = current_user.get("role")
+    if role == "super_admin":
         return
+    if role == "admin":
+        managed_ids = db.get_managed_user_ids(current_user.get("user_id"))
+        if job.get("user_id") in managed_ids:
+            return
+        raise HTTPException(status_code=403, detail="Access denied: you do not own this job")
     if job.get("user_id") != current_user.get("user_id"):
         raise HTTPException(status_code=403, detail="Access denied: you do not own this job")
 
@@ -66,9 +72,15 @@ async def list_jobs(
     limit: int = Query(50, ge=1, le=100, description="Maximum number of jobs to return"),
     current_user: dict = Depends(require_any_auth),
 ) -> JobListResponse:
-    """List jobs. Super admins see all jobs; admins and regular users see only their own."""
-    user_id_filter = None if current_user.get("role") == "super_admin" else current_user.get("user_id")
-    jobs = db.list_jobs(limit=limit, user_id=user_id_filter)
+    """List jobs. Super admins see all; admins see their own + their users'; users see only their own."""
+    role = current_user.get("role")
+    if role == "super_admin":
+        user_ids_filter = None
+    elif role == "admin":
+        user_ids_filter = db.get_managed_user_ids(current_user.get("user_id"))
+    else:
+        user_ids_filter = [current_user.get("user_id")]
+    jobs = db.list_jobs(limit=limit, user_ids=user_ids_filter)
 
     if status:
         jobs = [j for j in jobs if j["status"] == status]

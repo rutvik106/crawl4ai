@@ -53,18 +53,30 @@ def _schedule_to_response(sched: Dict[str, Any]) -> ScheduleResponse:
 
 
 def _check_schedule_ownership(sched: Dict[str, Any], current_user: dict) -> None:
-    """Raise 403 if user tries to access a schedule they don't own. Only super_admin bypasses this."""
-    if current_user.get("role") == "super_admin":
+    """Raise 403 if user tries to access a schedule outside their visibility scope."""
+    role = current_user.get("role")
+    if role == "super_admin":
         return
+    if role == "admin":
+        managed_ids = db.get_managed_user_ids(current_user.get("user_id"))
+        if sched.get("user_id") in managed_ids:
+            return
+        raise HTTPException(status_code=403, detail="Access denied: you do not own this schedule")
     if sched.get("user_id") != current_user.get("user_id"):
         raise HTTPException(status_code=403, detail="Access denied: you do not own this schedule")
 
 
 @router.get("", response_model=ScheduleListResponse)
 async def list_schedules(current_user: dict = Depends(require_any_auth)) -> ScheduleListResponse:
-    """List schedules. Super admins see all; admins and regular users see only their own."""
-    user_id_filter = None if current_user.get("role") == "super_admin" else current_user.get("user_id")
-    schedules = db.list_schedules(user_id=user_id_filter)
+    """List schedules. Super admins see all; admins see their own + their users'; users see only their own."""
+    role = current_user.get("role")
+    if role == "super_admin":
+        user_ids_filter = None
+    elif role == "admin":
+        user_ids_filter = db.get_managed_user_ids(current_user.get("user_id"))
+    else:
+        user_ids_filter = [current_user.get("user_id")]
+    schedules = db.list_schedules(user_ids=user_ids_filter)
     return ScheduleListResponse(
         schedules=[_schedule_to_response(s) for s in schedules],
         total=len(schedules),
