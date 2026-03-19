@@ -53,8 +53,8 @@ def _schedule_to_response(sched: Dict[str, Any]) -> ScheduleResponse:
 
 
 def _check_schedule_ownership(sched: Dict[str, Any], current_user: dict) -> None:
-    """Raise 403 if a regular user tries to access a schedule they don't own."""
-    if current_user.get("role") in _ADMIN_ROLES:
+    """Raise 403 if user tries to access a schedule they don't own. Only super_admin bypasses this."""
+    if current_user.get("role") == "super_admin":
         return
     if sched.get("user_id") != current_user.get("user_id"):
         raise HTTPException(status_code=403, detail="Access denied: you do not own this schedule")
@@ -62,8 +62,8 @@ def _check_schedule_ownership(sched: Dict[str, Any], current_user: dict) -> None
 
 @router.get("", response_model=ScheduleListResponse)
 async def list_schedules(current_user: dict = Depends(require_any_auth)) -> ScheduleListResponse:
-    """List schedules. Admins see all; regular users see only their own."""
-    user_id_filter = None if current_user.get("role") in _ADMIN_ROLES else current_user.get("user_id")
+    """List schedules. Super admins see all; admins and regular users see only their own."""
+    user_id_filter = None if current_user.get("role") == "super_admin" else current_user.get("user_id")
     schedules = db.list_schedules(user_id=user_id_filter)
     return ScheduleListResponse(
         schedules=[_schedule_to_response(s) for s in schedules],
