@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -17,6 +17,9 @@ from dashboard.engine import run_job_async
 from crawl4ai.output.job import generate_job_id
 
 _scheduler: Optional[BackgroundScheduler] = None
+
+# All user-facing cron expressions and internal checks run in IST
+_SCHEDULER_TZ = "Asia/Kolkata"
 
 
 def get_scheduler() -> BackgroundScheduler:
@@ -63,7 +66,7 @@ def _add_schedule_job(sched: dict) -> None:
         return
 
     try:
-        trigger = CronTrigger.from_crontab(sched["cron"])
+        trigger = CronTrigger.from_crontab(sched["cron"], timezone=_SCHEDULER_TZ)
         scheduler.add_job(
             _execute_scheduled_job,
             trigger=trigger,
@@ -142,17 +145,18 @@ def _register_consolidated_check() -> None:
         return
     scheduler.add_job(
         _run_consolidated_checks,
-        trigger=CronTrigger(hour=23, minute=30),
+        trigger=CronTrigger(hour=23, minute=30, timezone=_SCHEDULER_TZ),
         id="consolidated_check",
         replace_existing=True,
         misfire_grace_time=3600,
     )
-    print("[scheduler] Registered nightly consolidated check (23:30)")
+    print(f"[scheduler] Registered nightly consolidated check (23:30 IST)")
 
 
 def _run_consolidated_checks() -> None:
     """Nightly check: fire consolidated reports for weekly/monthly schedules that are due."""
-    now = datetime.now()
+    import zoneinfo
+    now = datetime.now(zoneinfo.ZoneInfo(_SCHEDULER_TZ))
     today_weekday = now.weekday()   # Monday=0 … Sunday=6
     is_last_day_of_month = (now + timedelta(days=1)).month != now.month
 
@@ -198,7 +202,7 @@ def _register_expiry_check() -> None:
         return
     scheduler.add_job(
         _run_expiry_checks,
-        trigger=CronTrigger(minute=0),  # top of every hour
+        trigger=CronTrigger(minute=0, timezone=_SCHEDULER_TZ),  # top of every hour (IST)
         id="expiry_check",
         replace_existing=True,
         misfire_grace_time=300,
