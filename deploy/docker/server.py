@@ -73,6 +73,10 @@ sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 config = load_config()
 setup_logging(config)
 
+# ── attach in-memory log buffer (must be after setup_logging) ─
+from log_buffer import attach_to_root_logger as _attach_log_buffer, get_recent_logs, buffer_size
+_attach_log_buffer()
+
 __version__ = "0.5.1-d1"
 
 # ── global page semaphore (hard cap) ─────────────────────────
@@ -90,18 +94,6 @@ def get_default_browser_config() -> BrowserConfig:
         extra_args=config["crawler"]["browser"].get("extra_args", []),
         **config["crawler"]["browser"].get("kwargs", {}),
     )
-
-# import logging
-# page_log = logging.getLogger("page_cap")
-# orig_arun = AsyncWebCrawler.arun
-# async def capped_arun(self, *a, **kw):
-#     await GLOBAL_SEM.acquire()                        # ← take slot
-#     try:
-#         in_flight = MAX_PAGES - GLOBAL_SEM._value     # used permits
-#         page_log.info("🕸️  pages_in_flight=%s / %s", in_flight, MAX_PAGES)
-#         return await orig_arun(self, *a, **kw)
-#     finally:
-#         GLOBAL_SEM.release()                          # ← free slot
 
 orig_arun = AsyncWebCrawler.arun
 
@@ -261,29 +253,16 @@ ALLOWED_TYPES = {
 
 
 def _safe_eval_config(expr: str) -> dict:
-    """
-    Accept exactly one top‑level call to CrawlerRunConfig(...) or BrowserConfig(...).
-    Whatever is inside the parentheses is fine *except* further function calls
-    (so no  __import__('os') stuff).  All public names from crawl4ai are available
-    when we eval.
-    """
     tree = ast.parse(expr, mode="eval")
-
-    # must be a single call
     if not isinstance(tree.body, ast.Call):
         raise ValueError("Expression must be a single constructor call")
-
     call = tree.body
     if not (isinstance(call.func, ast.Name) and call.func.id in {"CrawlerRunConfig", "BrowserConfig"}):
         raise ValueError(
             "Only CrawlerRunConfig(...) or BrowserConfig(...) are allowed")
-
-    # forbid nested calls to keep the surface tiny
     for node in ast.walk(call):
         if isinstance(node, ast.Call) and node is not call:
             raise ValueError("Nested function calls are not permitted")
-
-    # expose everything that crawl4ai exports, nothing else
     safe_env = {name: getattr(_c4, name)
                 for name in dir(_c4) if not name.startswith("_")}
     obj = eval(compile(tree, "<config>", "eval"),
@@ -315,6 +294,33 @@ async def config_dump(raw: RawCode):
         return JSONResponse(_safe_eval_config(raw.code.strip()))
     except Exception as e:
         raise HTTPException(400, str(e))
+
+
+# ── Admin: in-memory log viewer ──────────────────────────────
+@app.get("/admin/logs")
+async def admin_logs(
+    limit: int = Query(200, ge=1, le=2000, description="Max log lines to return"),
+    level: str = Query("INFO", description="Minimum log level: DEBUG, INFO, WARNING, ERROR, CRITICAL"),
+    logger_filter: Optional[str] = Query(None, description="Filter by logger name substring"),
+    _td: Dict = Depends(token_dep),
+):
+    """
+    Return recent in-memory server logs.
+
+    Useful for Claude or any admin tool to diagnose issues without SSH access.
+    Requires a valid Bearer token (same as all other endpoints).
+
+    Example:
+      GET /admin/logs?level=WARNING&limit=100
+    """
+    logs = get_recent_logs(limit=limit, min_level=level, logger_filter=logger_filter)
+    return JSONResponse({
+        "total": len(logs),
+        "buffer_size": buffer_size(),
+        "min_level": level.upper(),
+        "logger_filter": logger_filter,
+        "logs": logs,
+    })
 
 
 @app.post("/md")
@@ -350,10 +356,6 @@ async def generate_html(
     body: HTMLRequest,
     _td: Dict = Depends(token_dep),
 ):
-    """
-    Crawls the URL, preprocesses the raw HTML for schema extraction, and returns the processed HTML.
-    Use when you need sanitized HTML structures for building schemas or further processing.
-    """
     validate_url_scheme(body.url, allow_raw=True)
     from crawler_pool import get_crawler
     cfg = CrawlerRunConfig()
@@ -362,15 +364,12 @@ async def generate_html(
         results = await crawler.arun(url=body.url, config=cfg)
         if not results[0].success:
             raise HTTPException(500, detail=results[0].error_message or "Crawl failed")
-
         raw_html = results[0].html
         from crawl4ai.utils import preprocess_html_for_schema
         processed_html = preprocess_html_for_schema(raw_html)
         return JSONResponse({"html": processed_html, "url": body.url, "success": True})
     except Exception as e:
         raise HTTPException(500, detail=str(e))
-
-# Screenshot endpoint
 
 
 @app.post("/screenshot")
@@ -381,11 +380,6 @@ async def generate_screenshot(
     body: ScreenshotRequest,
     _td: Dict = Depends(token_dep),
 ):
-    """
-    Capture a full-page PNG screenshot of the specified URL, waiting an optional delay before capture,
-    Use when you need an image snapshot of the rendered page. Its recommened to provide an output path to save the screenshot.
-    Then in result instead of the screenshot you will get a path to the saved file.
-    """
     validate_url_scheme(body.url)
     from crawler_pool import get_crawler
     try:
@@ -405,8 +399,6 @@ async def generate_screenshot(
     except Exception as e:
         raise HTTPException(500, detail=str(e))
 
-# PDF endpoint
-
 
 @app.post("/pdf")
 @limiter.limit(config["rate_limiting"]["default_limit"])
@@ -416,11 +408,6 @@ async def generate_pdf(
     body: PDFRequest,
     _td: Dict = Depends(token_dep),
 ):
-    """
-    Generate a PDF document of the specified URL,
-    Use when you need a printable or archivable snapshot of the page. It is recommended to provide an output path to save the PDF.
-    Then in result instead of the PDF you will get a path to the saved file.
-    """
     validate_url_scheme(body.url)
     from crawler_pool import get_crawler
     try:
@@ -449,51 +436,6 @@ async def execute_js(
     body: JSEndpointRequest,
     _td: Dict = Depends(token_dep),
 ):
-    """
-    Execute a sequence of JavaScript snippets on the specified URL.
-    Return the full CrawlResult JSON (first result).
-    Use this when you need to interact with dynamic pages using JS.
-    REMEMBER: Scripts accept a list of separated JS snippets to execute and execute them in order.
-    IMPORTANT: Each script should be an expression that returns a value. It can be an IIFE or an async function. You can think of it as such.
-        Your script will replace '{script}' and execute in the browser context. So provide either an IIFE or a sync/async function that returns a value.
-    Return Format:
-        - The return result is an instance of CrawlResult, so you have access to markdown, links, and other stuff. If this is enough, you don't need to call again for other endpoints.
-
-        ```python
-        class CrawlResult(BaseModel):
-            url: str
-            html: str
-            success: bool
-            cleaned_html: Optional[str] = None
-            media: Dict[str, List[Dict]] = {}
-            links: Dict[str, List[Dict]] = {}
-            downloaded_files: Optional[List[str]] = None
-            js_execution_result: Optional[Dict[str, Any]] = None
-            screenshot: Optional[str] = None
-            pdf: Optional[bytes] = None
-            mhtml: Optional[str] = None
-            _markdown: Optional[MarkdownGenerationResult] = PrivateAttr(default=None)
-            extracted_content: Optional[str] = None
-            metadata: Optional[dict] = None
-            error_message: Optional[str] = None
-            session_id: Optional[str] = None
-            response_headers: Optional[dict] = None
-            status_code: Optional[int] = None
-            ssl_certificate: Optional[SSLCertificate] = None
-            dispatch_result: Optional[DispatchResult] = None
-            redirected_url: Optional[str] = None
-            network_requests: Optional[List[Dict[str, Any]]] = None
-            console_messages: Optional[List[Dict[str, Any]]] = None
-
-        class MarkdownGenerationResult(BaseModel):
-            raw_markdown: str
-            markdown_with_citations: str
-            references_markdown: str
-            fit_markdown: Optional[str] = None
-            fit_html: Optional[str] = None
-        ```
-
-    """
     validate_url_scheme(body.url)
     from crawler_pool import get_crawler
     try:
@@ -532,9 +474,7 @@ async def get_schema():
 
 @app.get("/hooks/info")
 async def get_hooks_info():
-    """Get information about available hook points and their signatures"""
     from hook_manager import UserHookManager
-    
     hook_info = {}
     for hook_point, params in UserHookManager.HOOK_SIGNATURES.items():
         hook_info[hook_point] = {
@@ -542,19 +482,13 @@ async def get_hooks_info():
             "description": get_hook_description(hook_point),
             "example": get_hook_example(hook_point)
         }
-    
     return JSONResponse({
         "available_hooks": hook_info,
-        "timeout_limits": {
-            "min": 1,
-            "max": 120,
-            "default": 30
-        }
+        "timeout_limits": {"min": 1, "max": 120, "default": 30}
     })
 
 
 def get_hook_description(hook_point: str) -> str:
-    """Get description for each hook point"""
     descriptions = {
         "on_browser_created": "Called after browser instance is created",
         "on_page_context_created": "Called after page and context are created - ideal for authentication",
@@ -569,29 +503,10 @@ def get_hook_description(hook_point: str) -> str:
 
 
 def get_hook_example(hook_point: str) -> str:
-    """Get example code for each hook point"""
     examples = {
-        "on_page_context_created": """async def hook(page, context, **kwargs):
-    # Add authentication cookie
-    await context.add_cookies([{
-        'name': 'session',
-        'value': 'my-session-id',
-        'domain': '.example.com'
-    }])
-    return page""",
-        
-        "before_retrieve_html": """async def hook(page, context, **kwargs):
-    # Scroll to load lazy content
-    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-    await page.wait_for_timeout(2000)
-    return page""",
-        
-        "before_goto": """async def hook(page, context, url, **kwargs):
-    # Set custom headers
-    await page.set_extra_http_headers({
-        'X-Custom-Header': 'value'
-    })
-    return page"""
+        "on_page_context_created": """async def hook(page, context, **kwargs):\n    await context.add_cookies([{'name': 'session', 'value': 'my-session-id', 'domain': '.example.com'}])\n    return page""",
+        "before_retrieve_html": """async def hook(page, context, **kwargs):\n    await page.evaluate(\"window.scrollTo(0, document.body.scrollHeight)\")\n    await page.wait_for_timeout(2000)\n    return page""",
+        "before_goto": """async def hook(page, context, url, **kwargs):\n    await page.set_extra_http_headers({'X-Custom-Header': 'value'})\n    return page"""
     }
     return examples.get(hook_point, "# Implement your hook logic here\nreturn page")
 
@@ -614,28 +529,16 @@ async def crawl(
     crawl_request: CrawlRequestWithHooks,
     _td: Dict = Depends(token_dep),
 ):
-    """
-    Crawl a list of URLs and return the results as JSON.
-    For streaming responses, use /crawl/stream endpoint.
-    Supports optional user-provided hook functions for customization.
-    """
     if not crawl_request.urls:
         raise HTTPException(400, "At least one URL required")
     if crawl_request.hooks and not HOOKS_ENABLED:
         raise HTTPException(403, "Hooks are disabled. Set CRAWL4AI_HOOKS_ENABLED=true to enable.")
-    # Check whether it is a redirection for a streaming request
     crawler_config = CrawlerRunConfig.load(crawl_request.crawler_config)
     if crawler_config.stream:
         return await stream_process(crawl_request=crawl_request)
-    
-    # Prepare hooks config if provided
     hooks_config = None
     if crawl_request.hooks:
-        hooks_config = {
-            'code': crawl_request.hooks.code,
-            'timeout': crawl_request.hooks.timeout
-        }
-    
+        hooks_config = {'code': crawl_request.hooks.code, 'timeout': crawl_request.hooks.timeout}
     results = await handle_crawl_request(
         urls=crawl_request.urls,
         browser_config=crawl_request.browser_config,
@@ -643,7 +546,6 @@ async def crawl(
         config=config,
         hooks_config=hooks_config
     )
-    # check if all of the results are not successful
     if all(not result["success"] for result in results["results"]):
         raise HTTPException(500, f"Crawl request failed: {results['results'][0]['error_message']}")
     return JSONResponse(results)
@@ -660,19 +562,12 @@ async def crawl_stream(
         raise HTTPException(400, "At least one URL required")
     if crawl_request.hooks and not HOOKS_ENABLED:
         raise HTTPException(403, "Hooks are disabled. Set CRAWL4AI_HOOKS_ENABLED=true to enable.")
-
     return await stream_process(crawl_request=crawl_request)
 
 async def stream_process(crawl_request: CrawlRequestWithHooks):
-    
-    # Prepare hooks config if provided# Prepare hooks config if provided
     hooks_config = None
     if crawl_request.hooks:
-        hooks_config = {
-            'code': crawl_request.hooks.code,
-            'timeout': crawl_request.hooks.timeout
-        }
-    
+        hooks_config = {'code': crawl_request.hooks.code, 'timeout': crawl_request.hooks.timeout}
     crawler, gen, hooks_info = await handle_stream_crawl_request(
         urls=crawl_request.urls,
         browser_config=crawl_request.browser_config,
@@ -680,8 +575,6 @@ async def stream_process(crawl_request: CrawlRequestWithHooks):
         config=config,
         hooks_config=hooks_config
     )
-    
-    # Add hooks info to response headers if available
     headers = {
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
@@ -690,7 +583,6 @@ async def stream_process(crawl_request: CrawlRequestWithHooks):
     if hooks_info:
         import json
         headers["X-Hooks-Status"] = json.dumps(hooks_info['status']['status'])
-    
     return StreamingResponse(
         stream_results(crawler, gen),
         media_type="application/x-ndjson",
@@ -699,12 +591,10 @@ async def stream_process(crawl_request: CrawlRequestWithHooks):
 
 
 def chunk_code_functions(code_md: str) -> List[str]:
-    """Extract each function/class from markdown code blocks per file."""
     pattern = re.compile(
-        # match "## File: <path>" then a ```py fence, then capture until the closing ```
-        r'##\s*File:\s*(?P<path>.+?)\s*?\r?\n'      # file header
-        r'```py\s*?\r?\n'                         # opening fence
-        r'(?P<code>.*?)(?=\r?\n```)',             # code block
+        r'##\s*File:\s*(?P<path>.+?)\s*?\r?\n'
+        r'```py\s*?\r?\n'
+        r'(?P<code>.*?)(?=\r?\n```)',
         re.DOTALL
     )
     chunks: List[str] = []
@@ -745,57 +635,27 @@ async def get_context(
     request: Request,
     _td: Dict = Depends(token_dep),
     context_type: str = Query("all", regex="^(code|doc|all)$"),
-    query: Optional[str] = Query(
-        None, description="search query to filter chunks"),
-    score_ratio: float = Query(
-        0.5, ge=0.0, le=1.0, description="min score as fraction of max_score"),
-    max_results: int = Query(
-        20, ge=1, description="absolute cap on returned chunks"),
+    query: Optional[str] = Query(None, description="search query to filter chunks"),
+    score_ratio: float = Query(0.5, ge=0.0, le=1.0, description="min score as fraction of max_score"),
+    max_results: int = Query(20, ge=1, description="absolute cap on returned chunks"),
 ):
-    """
-    This end point is design for any questions about Crawl4ai library. It returns a plain text markdown with extensive information about Crawl4ai. 
-    You can use this as a context for any AI assistant. Use this endpoint for AI assistants to retrieve library context for decision making or code generation tasks.
-    Alway is BEST practice you provide a query to filter the context. Otherwise the lenght of the response will be very long.
-
-    Parameters:
-    - context_type: Specify "code" for code context, "doc" for documentation context, or "all" for both.
-    - query: RECOMMENDED search query to filter paragraphs using BM25. You can leave this empty to get all the context.
-    - score_ratio: Minimum score as a fraction of the maximum score for filtering results.
-    - max_results: Maximum number of results to return. Default is 20.
-
-    Returns:
-    - JSON response with the requested context.
-    - If "code" is specified, returns the code context.
-    - If "doc" is specified, returns the documentation context.
-    - If "all" is specified, returns both code and documentation contexts.
-    """
-    # load contexts
     base = os.path.dirname(__file__)
     code_path = os.path.join(base, "c4ai-code-context.md")
     doc_path = os.path.join(base, "c4ai-doc-context.md")
     if not os.path.exists(code_path) or not os.path.exists(doc_path):
         raise HTTPException(404, "Context files not found")
-
     with open(code_path, "r") as f:
         code_content = f.read()
     with open(doc_path, "r") as f:
         doc_content = f.read()
-
-    # if no query, just return raw contexts
     if not query:
         if context_type == "code":
             return JSONResponse({"code_context": code_content})
         if context_type == "doc":
             return JSONResponse({"doc_context": doc_content})
-        return JSONResponse({
-            "code_context": code_content,
-            "doc_context": doc_content,
-        })
-
+        return JSONResponse({"code_context": code_content, "doc_context": doc_content})
     tokens = query.split()
     results: Dict[str, List[Dict[str, float]]] = {}
-
-    # code BM25 over functions/classes
     if context_type in ("code", "all"):
         code_chunks = chunk_code_functions(code_content)
         bm25 = BM25Okapi([c.split() for c in code_chunks])
@@ -805,8 +665,6 @@ async def get_context(
         picked = [(c, s) for c, s in zip(code_chunks, scores) if s >= cutoff]
         picked = sorted(picked, key=lambda x: x[1], reverse=True)[:max_results]
         results["code_results"] = [{"text": c, "score": s} for c, s in picked]
-
-    # doc BM25 over markdown sections
     if context_type in ("doc", "all"):
         sections = chunk_doc_sections(doc_content)
         bm25d = BM25Okapi([sec.split() for sec in sections])
@@ -817,10 +675,7 @@ async def get_context(
         neighbors = set(i for idx in idxs for i in (idx-1, idx, idx+1))
         valid = [i for i in sorted(neighbors) if 0 <= i < len(sections)]
         valid = valid[:max_results]
-        results["doc_results"] = [
-            {"text": sections[i], "score": scores_d[i]} for i in valid
-        ]
-
+        results["doc_results"] = [{"text": sections[i], "score": scores_d[i]} for i in valid]
     return JSONResponse(results)
 
 
