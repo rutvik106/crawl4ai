@@ -25,10 +25,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from dashboard.scheduler import get_scheduler, shutdown as scheduler_shutdown
 from dashboard import db
+from dashboard.log_buffer import attach_to_root_logger
 from api.auth import hash_password
 from api.routers import jobs, schedules, settings, stats
 from api.routers import auth as auth_router
 from api.routers import users as users_router
+from api.routers import logs as logs_router
+
+# Attach in-memory log buffer as early as possible
+attach_to_root_logger()
 
 
 def _seed_super_admin() -> None:
@@ -42,7 +47,6 @@ def _seed_super_admin() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan - start scheduler on startup, cleanup on shutdown."""
-    # Startup: Initialize scheduler and seed super admin
     print("[api] Starting up...")
     get_scheduler()
     print("[api] Scheduler initialized and running")
@@ -51,7 +55,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[api] Warning: could not seed super-admin: {e}")
     yield
-    # Shutdown: Cleanup scheduler
     print("[api] Shutting down...")
     scheduler_shutdown()
 
@@ -69,7 +72,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,6 +85,7 @@ app.include_router(jobs.router, prefix="/api")
 app.include_router(schedules.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
+app.include_router(logs_router.router, prefix="/api")
 
 
 @app.get("/")
@@ -98,6 +102,7 @@ async def root():
             "schedules": "/api/schedules",
             "settings": "/api/settings",
             "stats": "/api/stats",
+            "logs": "/api/logs",
         },
     }
 
