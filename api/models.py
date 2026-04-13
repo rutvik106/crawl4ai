@@ -21,6 +21,7 @@ class JobCreateRequest(BaseModel):
     email_subject: str = Field("", description="Email subject")
     run_async: bool = Field(True, description="Run job immediately after creation")
     summarize_with_ai: bool = Field(False, description="Generate an AI summary and include it in the email")
+    batch_id: Optional[str] = Field(None, description="Optional batch ID to group jobs submitted together")
 
 
 class JobResponse(BaseModel):
@@ -37,6 +38,7 @@ class JobResponse(BaseModel):
     output_dir: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     user_id: Optional[int] = None
+    batch_id: Optional[str] = None
 
 
 class JobListResponse(BaseModel):

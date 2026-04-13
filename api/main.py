@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from dashboard.scheduler import get_scheduler, shutdown as scheduler_shutdown
 from dashboard import db
+from dashboard.engine import run_job_async
 from dashboard.log_buffer import attach_to_root_logger
 from api.auth import hash_password
 from api.routers import jobs, schedules, settings, stats
@@ -44,6 +45,47 @@ def _seed_super_admin() -> None:
     print(f"[api] Super-admin account ready (username: {username})")
 
 
+def _recover_unfinished_jobs() -> None:
+    """On startup, re-queue pending jobs and reset interrupted running jobs.
+
+    When the server restarts the in-memory job queue is wiped, so any job
+    that was 'pending' or 'running' at the time of the restart would be
+    stuck in that state forever.  This function:
+      - Re-queues 'pending' jobs so they execute normally.
+      - Marks 'running' jobs as 'failed' (they were mid-execution when the
+        server died and cannot be safely resumed).
+    """
+    try:
+        unfinished = db.get_unfinished_jobs()
+        if not unfinished:
+            return
+
+        pending = [j for j in unfinished if j["status"] == "pending"]
+        interrupted = [j for j in unfinished if j["status"] == "running"]
+
+        # Jobs that were mid-run when the server crashed — mark failed
+        for job in interrupted:
+            db.update_job(
+                job["id"],
+                status="failed",
+                error="Job was interrupted by a server restart and could not be resumed.",
+            )
+            print(f"[api] Marked interrupted job {job['id']} ({job['name']!r}) as failed")
+
+        # Jobs that were queued but never started — re-queue them
+        for job in pending:
+            run_job_async(job["id"])
+            print(f"[api] Re-queued pending job {job['id']} ({job['name']!r})")
+
+        if interrupted or pending:
+            print(
+                f"[api] Startup recovery: {len(interrupted)} interrupted job(s) marked failed, "
+                f"{len(pending)} pending job(s) re-queued"
+            )
+    except Exception as exc:
+        print(f"[api] Warning: startup job recovery failed: {exc}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan - start scheduler on startup, cleanup on shutdown."""
@@ -54,6 +96,7 @@ async def lifespan(app: FastAPI):
         _seed_super_admin()
     except Exception as e:
         print(f"[api] Warning: could not seed super-admin: {e}")
+    _recover_unfinished_jobs()
     yield
     print("[api] Shutting down...")
     scheduler_shutdown()

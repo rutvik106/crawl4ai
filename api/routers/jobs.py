@@ -49,6 +49,7 @@ def _job_to_response(job: Dict[str, Any]) -> JobResponse:
         output_dir=job.get("output_dir"),
         config=_parse_config(job.get("config")),
         user_id=job.get("user_id"),
+        batch_id=job.get("batch_id"),
     )
 
 
@@ -124,6 +125,7 @@ async def create_job(
         url=request.url,
         config=config,
         user_id=current_user.get("user_id"),
+        batch_id=request.batch_id,
     )
 
     if request.run_async:
