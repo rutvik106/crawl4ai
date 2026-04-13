@@ -131,30 +131,32 @@ def _log(msg: str) -> None:
 def _queue_processor() -> None:
     """Background thread that processes jobs from the queue with limited concurrency."""
     semaphore = threading.Semaphore(MAX_CONCURRENT_JOBS)
-    
+
     while True:
         try:
             job_id, done_event = _job_queue.get(timeout=1)
             if job_id is None:  # Shutdown signal
                 break
-                
+
             # Try to acquire semaphore (blocks until slot available)
             acquired = semaphore.acquire(blocking=False)
             if not acquired:
                 _log(f"[engine] Job {job_id} waiting for available slot ({MAX_CONCURRENT_JOBS} max)")
                 semaphore.acquire()  # Block until available
-                
-            # Run the job in a thread
-            def run_with_release():
+
+            # IMPORTANT: capture job_id and done_event as default-arg values so that
+            # the closure is not affected when the while-loop overwrites those variables
+            # on the next iteration before this thread has had a chance to run.
+            def run_with_release(_jid=job_id, _ev=done_event):
                 try:
-                    _run_in_thread(job_id)
+                    _run_in_thread(_jid)
                 finally:
                     semaphore.release()
-                    done_event.set()
-                    
+                    _ev.set()
+
             thread = threading.Thread(target=run_with_release, daemon=True)
             thread.start()
-            
+
         except Exception:
             continue
 
@@ -232,7 +234,12 @@ async def _execute_job(job_id: str) -> None:
     """Core async job execution."""
     job = db.get_job(job_id)
     if not job:
-        print(f"[engine] Job {job_id} not found in database, skipping execution")
+        _log(f"[engine] Job {job_id} not found in database — marking failed to avoid pending limbo")
+        try:
+            db.update_job(job_id, status="failed",
+                          error="Job record could not be found at execution time (possible restart race condition).")
+        except Exception:
+            pass
         return
 
     config = json.loads(job["config"]) if isinstance(job["config"], str) else job["config"]
