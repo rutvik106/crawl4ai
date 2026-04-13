@@ -7,6 +7,7 @@ from .sqlite_output import SQLiteOutput
 from .html_report import HTMLReportOutput
 from .email_output import EmailOutput
 from .webhook_output import WebhookOutput
+from .pdf_output import PDFReportOutput
 from .job import create_job_outputs, generate_job_id
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "HTMLReportOutput",
     "EmailOutput",
     "WebhookOutput",
+    "PDFReportOutput",
     "create_job_outputs",
     "generate_job_id",
 ]

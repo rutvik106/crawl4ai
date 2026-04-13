@@ -15,7 +15,8 @@ Usage::
     #   ├── results.json
     #   ├── results.csv
     #   ├── crawls.db
-    #   └── report.html
+    #   ├── report.html
+    #   └── report.pdf
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from .csv_output import CsvFileOutput
 from .sqlite_output import SQLiteOutput
 from .html_report import HTMLReportOutput
 from .email_output import EmailOutput
+from .pdf_output import PDFReportOutput
 
 
 def generate_job_id() -> str:
@@ -73,6 +75,7 @@ def create_job_outputs(
         CsvFileOutput(path=os.path.join(job_dir, "results.csv")),
         SQLiteOutput(db_path=os.path.join(job_dir, "crawls.db")),
         HTMLReportOutput(path=os.path.join(job_dir, "report.html"), title=title),
+        PDFReportOutput(path=os.path.join(job_dir, "report.pdf"), title=title),
     ]
 
     if email_to:

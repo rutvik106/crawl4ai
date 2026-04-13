@@ -8,6 +8,7 @@ import shutil
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, Response
 
 from dashboard import db
 from dashboard.engine import run_job_async
@@ -247,3 +248,103 @@ async def get_job_results(job_id: str, current_user: dict = Depends(require_any_
         results=results,
         blob_urls=blob_urls,
     )
+
+
+@router.get("/{job_id}/pdf")
+async def download_pdf(job_id: str, current_user: dict = Depends(require_any_auth)):
+    """Download the PDF report for a completed job.
+
+    Returns the PDF from Vercel Blob if available, otherwise falls back
+    to the local file system.
+    """
+    job = db.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    _check_job_ownership(job, current_user)
+
+    filename = f"{job['name'].replace(' ', '_')}_{job_id}.pdf"
+
+    # 1. Try Vercel Blob URL (production — no local files on Railway/Vercel)
+    raw_blob_urls = job.get("blob_urls")
+    if raw_blob_urls:
+        blob_urls = raw_blob_urls
+        if isinstance(raw_blob_urls, str):
+            try:
+                blob_urls = json.loads(raw_blob_urls)
+            except Exception:
+                blob_urls = {}
+        pdf_url = blob_urls.get("report.pdf")
+        if pdf_url:
+            import urllib.request
+            try:
+                with urllib.request.urlopen(pdf_url, timeout=15) as resp:
+                    pdf_data = resp.read()
+                return Response(
+                    content=pdf_data,
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}"',
+                    },
+                )
+            except Exception:
+                pass  # Fall through to local file
+
+    # 2. Try local file system
+    output_dir = job.get("output_dir", "")
+    if output_dir:
+        pdf_path = os.path.join(output_dir, "report.pdf")
+        if os.path.exists(pdf_path):
+            return FileResponse(
+                path=pdf_path,
+                media_type="application/pdf",
+                filename=filename,
+            )
+
+    # 3. Generate on-the-fly from stored articles
+    articles_raw = job.get("extracted_articles")
+    if articles_raw:
+        articles = articles_raw
+        if isinstance(articles_raw, str):
+            try:
+                articles = json.loads(articles_raw)
+            except Exception:
+                articles = []
+
+        if isinstance(articles, list) and articles:
+            from crawl4ai.output.pdf_output import PDFReportOutput
+            from crawl4ai.models import CrawlResult
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                tmp_path = tmp.name
+
+            try:
+                pdf_backend = PDFReportOutput(
+                    path=tmp_path,
+                    title=f"IntelliFetch: {job['name']}",
+                )
+                result = CrawlResult(
+                    url=job["url"],
+                    success=True,
+                    extracted_content=json.dumps(articles),
+                )
+                pdf_backend.save(result)
+                pdf_backend.finalize()
+
+                with open(tmp_path, "rb") as f:
+                    pdf_data = f.read()
+
+                return Response(
+                    content=pdf_data,
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": f'attachment; filename="{filename}"',
+                    },
+                )
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+    raise HTTPException(status_code=404, detail="PDF report not available for this job")

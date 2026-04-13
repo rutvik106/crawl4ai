@@ -453,11 +453,13 @@ async def _execute_job(job_id: str) -> None:
                     max_tokens=200,
                 )
                 ai_summary = summary_response.choices[0].message.content.strip()
-                # Inject the summary into the EmailOutput backend
+                # Inject the summary into EmailOutput and PDFReportOutput backends
+                from crawl4ai.output.pdf_output import PDFReportOutput as PDFR
                 for output in outputs:
                     if isinstance(output, EO):
                         output.ai_summary = ai_summary
-                        break
+                    elif isinstance(output, PDFR):
+                        output.ai_summary = ai_summary
                 _log(f"[engine] Job {job_id}: AI summary generated ({len(ai_summary)} chars)")
             except Exception as summary_err:
                 _log(f"[engine] Job {job_id}: AI summary generation failed: {summary_err}")

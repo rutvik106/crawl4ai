@@ -44,6 +44,7 @@ class VercelBlobOutput(OutputBackend):
     _ARTIFACTS = [
         ("report.html", "report.html"),
         ("results.json", "results.json"),
+        ("report.pdf", "report.pdf"),
     ]
 
     def __init__(
