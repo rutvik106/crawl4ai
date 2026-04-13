@@ -565,4 +565,18 @@ def cancel_pending_jobs_for_user(user_id: int) -> int:
         return cur.rowcount
 
 
+def get_unfinished_jobs() -> List[Dict[str, Any]]:
+    """Return all jobs currently in 'pending' or 'running' state.
+
+    Used on server startup to recover jobs that were interrupted by a restart.
+    """
+    init_db()
+    with _cursor(RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM jobs WHERE status IN ('pending', 'running') ORDER BY created_at ASC"
+        )
+        rows = cur.fetchall()
+    return [dict(r) for r in rows]
+
+
 # Lazy initialization - init_db() is now called by each function when needed
