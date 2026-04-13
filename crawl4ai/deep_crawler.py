@@ -320,7 +320,7 @@ async def smart_extract(
         # Fits — extract directly
         print(f"[smart_extract] Content fits ({len(all_content)} <= {content_limit}), extracting directly...")
         try:
-            result = strategy.extract("aggregated", all_content)
+            result = await strategy.aextract("aggregated", all_content)
             print(f"[smart_extract] LLM returned {len(result) if result else 0} chars")
             print(f"[smart_extract] LLM preview: {str(result)[:200]}")
         except Exception as e:
@@ -344,7 +344,7 @@ async def smart_extract(
         for i, chunk in enumerate(chunks):
             print(f"[smart_extract] Extracting chunk {i+1}/{len(chunks)} ({len(chunk)} chars)...")
             try:
-                extracted = strategy.extract("aggregated", chunk)
+                extracted = await strategy.aextract("aggregated", chunk)
                 print(f"[smart_extract]   Chunk {i+1} returned {len(extracted) if extracted else 0} chars")
             except Exception as e:
                 print(f"[smart_extract]   Chunk {i+1} ERROR: {e}")
@@ -488,7 +488,7 @@ async def _llm_noise_filter(
     strategy.schema = None  # Free-form response
 
     try:
-        response = strategy.extract("filter", review_prompt)
+        response = await strategy.aextract("filter", review_prompt)
 
         # Parse the response — expect a JSON array of integers
         response = response.strip()

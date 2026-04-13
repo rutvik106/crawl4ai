@@ -77,12 +77,15 @@ class LLMExtractionStrategy(ExtractionStrategy):
         if self.llm_config.base_url:
             call_kwargs["base_url"] = self.llm_config.base_url
 
-        # Forward extra args
-        extra_headers = self.extra_args.pop("extra_headers", None)
-        call_kwargs.update(self.extra_args)
-        if extra_headers:
-            call_kwargs["extra_headers"] = extra_headers
-            self.extra_args["extra_headers"] = extra_headers  # restore
+        # Forward extra args (use .get() to avoid mutating self.extra_args)
+        extra = {k: v for k, v in self.extra_args.items() if k != "extra_headers"}
+        call_kwargs.update(extra)
+        if "extra_headers" in self.extra_args:
+            call_kwargs["extra_headers"] = self.extra_args["extra_headers"]
+
+        # Always set a timeout so LLM calls don't hang indefinitely
+        if "timeout" not in call_kwargs:
+            call_kwargs["timeout"] = 120
 
         response = await litellm.acompletion(**call_kwargs)
         content = response.choices[0].message.content.strip()

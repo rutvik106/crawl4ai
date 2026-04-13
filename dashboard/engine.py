@@ -20,7 +20,8 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 _running_jobs: Set[str] = set()
 
 # Job queue for limiting concurrency (max 1 for Railway free tier)
-MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "1"))
+MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "3"))
+HARD_THREAD_TIMEOUT = int(os.getenv("HARD_THREAD_TIMEOUT", "900"))  # 15 min safety net
 _job_queue: Queue[Tuple[str, threading.Event]] = Queue()
 _queue_processor_started = False
 
@@ -156,6 +157,33 @@ def _queue_processor() -> None:
 
             thread = threading.Thread(target=run_with_release, daemon=True)
             thread.start()
+
+            # Hard timeout watchdog: if the thread doesn't finish in time,
+            # mark the job as failed and release resources so other jobs
+            # aren't blocked forever.
+            def _watchdog(_t=thread, _jid=job_id, _ev=done_event):
+                _t.join(timeout=HARD_THREAD_TIMEOUT)
+                if _t.is_alive():
+                    _log(f"[engine] WATCHDOG: Job {_jid} exceeded {HARD_THREAD_TIMEOUT}s hard timeout, marking failed")
+                    try:
+                        db.update_job(
+                            _jid, status="failed",
+                            finished_at=datetime.now().isoformat(),
+                            error=f"Job exceeded hard timeout of {HARD_THREAD_TIMEOUT}s and was terminated.",
+                        )
+                    except Exception:
+                        pass
+                    # Ensure the semaphore and event are released even if thread is stuck
+                    if not _ev.is_set():
+                        try:
+                            semaphore.release()
+                        except Exception:
+                            pass
+                        _ev.set()
+                    _running_jobs.discard(_jid)
+
+            watchdog = threading.Thread(target=_watchdog, daemon=True)
+            watchdog.start()
 
         except Exception:
             continue
@@ -445,7 +473,7 @@ async def _execute_job(job_id: str) -> None:
         manager.save(final_result)
         manager.finalize()
 
-        status = "completed" if article_count > 0 else "completed_empty"
+        status = "completed"
         update_kwargs: dict = {
             "status": status,
             "finished_at": datetime.now().isoformat(),
