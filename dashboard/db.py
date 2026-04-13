@@ -91,7 +91,8 @@ def init_db() -> None:
                 blob_urls JSONB,
                 user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 schedule_id INTEGER,
-                extracted_articles JSONB
+                extracted_articles JSONB,
+                batch_id TEXT
             )
         """)
 
@@ -107,6 +108,12 @@ def init_db() -> None:
         """)
         cursor.execute("""
             ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extracted_articles JSONB
+        """)
+        cursor.execute("""
+            ALTER TABLE jobs ADD COLUMN IF NOT EXISTS batch_id TEXT
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_jobs_batch_id ON jobs(batch_id)
         """)
 
         # Create schedules table
@@ -168,18 +175,19 @@ def create_job(
     output_dir: str = "",
     user_id: Optional[int] = None,
     schedule_id: Optional[int] = None,
+    batch_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     init_db()  # Ensure DB is initialized
     now = datetime.now()
     with _cursor() as cur:
         cur.execute(
             """
-            INSERT INTO jobs (id, name, url, config, status, created_at, output_dir, user_id, schedule_id)
-            VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s, %s)
+            INSERT INTO jobs (id, name, url, config, status, created_at, output_dir, user_id, schedule_id, batch_id)
+            VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s, %s, %s)
             """,
-            (job_id, name, url, json.dumps(config), now, output_dir, user_id, schedule_id),
+            (job_id, name, url, json.dumps(config), now, output_dir, user_id, schedule_id, batch_id),
         )
-    return {"id": job_id, "name": name, "url": url, "status": "pending", "created_at": now.isoformat(), "user_id": user_id, "schedule_id": schedule_id}
+    return {"id": job_id, "name": name, "url": url, "status": "pending", "created_at": now.isoformat(), "user_id": user_id, "schedule_id": schedule_id, "batch_id": batch_id}
 
 
 def update_job(job_id: str, **fields) -> None:
