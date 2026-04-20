@@ -49,6 +49,7 @@ def _schedule_to_response(sched: Dict[str, Any]) -> ScheduleResponse:
         user_id=sched.get("user_id"),
         consolidated_frequency=sched.get("consolidated_frequency"),
         consolidated_last_sent=str(sched["consolidated_last_sent"]) if sched.get("consolidated_last_sent") else None,
+        batch_id=sched.get("batch_id"),
     )
 
 
@@ -113,6 +114,7 @@ async def create_schedule(
         recipients=request.recipients,
         user_id=current_user.get("user_id"),
         consolidated_frequency=freq,
+        batch_id=request.batch_id,
     )
 
     if not request.enabled:
@@ -180,6 +182,7 @@ async def run_schedule_now(
         url=sched["url"],
         config=config,
         user_id=current_user.get("user_id"),
+        batch_id=sched.get("batch_id"),
     )
 
     run_job_async(job_id)

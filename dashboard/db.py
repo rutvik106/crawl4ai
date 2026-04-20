@@ -131,7 +131,8 @@ def init_db() -> None:
                 created_at TIMESTAMP WITH TIME ZONE NOT NULL,
                 user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 consolidated_frequency TEXT,
-                consolidated_last_sent TIMESTAMP WITH TIME ZONE
+                consolidated_last_sent TIMESTAMP WITH TIME ZONE,
+                batch_id TEXT
             )
         """)
 
@@ -144,6 +145,12 @@ def init_db() -> None:
         """)
         cursor.execute("""
             ALTER TABLE schedules ADD COLUMN IF NOT EXISTS consolidated_last_sent TIMESTAMP WITH TIME ZONE
+        """)
+        cursor.execute("""
+            ALTER TABLE schedules ADD COLUMN IF NOT EXISTS batch_id TEXT
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_schedules_batch_id ON schedules(batch_id)
         """)
 
         # Migration: add expires_at to users if it doesn't exist yet
@@ -293,17 +300,18 @@ def create_schedule(
     recipients: str,
     user_id: Optional[int] = None,
     consolidated_frequency: Optional[str] = None,
+    batch_id: Optional[str] = None,
 ) -> int:
     init_db()  # Ensure DB is initialized
     now = datetime.now()
     with _cursor() as cur:
         cur.execute(
             """
-            INSERT INTO schedules (job_name, url, config, cron, recipients, created_at, user_id, consolidated_frequency)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO schedules (job_name, url, config, cron, recipients, created_at, user_id, consolidated_frequency, batch_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (job_name, url, json.dumps(config), cron, recipients, now, user_id, consolidated_frequency or None),
+            (job_name, url, json.dumps(config), cron, recipients, now, user_id, consolidated_frequency or None, batch_id),
         )
         schedule_id = cur.fetchone()[0]
     return schedule_id

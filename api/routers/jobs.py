@@ -153,6 +153,7 @@ async def rerun_job(job_id: str, current_user: dict = Depends(require_any_auth))
         url=job["url"],
         config=config,
         user_id=current_user.get("user_id"),
+        batch_id=job.get("batch_id"),
     )
 
     run_job_async(new_id)

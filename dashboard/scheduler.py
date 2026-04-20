@@ -117,12 +117,17 @@ def _execute_scheduled_job(sched: dict) -> None:
 
     # Create a new job entry, linking it to this schedule for consolidated reporting
     job_id = generate_job_id()
+    # Inherit batch_id and user_id from the current schedule row so that jobs
+    # spawned by scheduled firings are grouped together on the dashboard.
+    source = current_schedule or sched
     db.create_job(
         job_id=job_id,
         name=f"{sched['job_name']} (scheduled)",
         url=sched["url"],
         config=config,
         schedule_id=sched.get("id"),
+        user_id=source.get("user_id"),
+        batch_id=source.get("batch_id"),
     )
 
     # Update last_run
