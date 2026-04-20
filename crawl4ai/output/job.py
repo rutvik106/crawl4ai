@@ -81,7 +81,7 @@ def create_job_outputs(
     if email_to:
         backends.append(EmailOutput(
             to=email_to,
-            subject=email_subject or f"Crawl4AI: {title}",
+            subject=email_subject or f"{title}",
         ))
 
     return job_id, job_dir, backends

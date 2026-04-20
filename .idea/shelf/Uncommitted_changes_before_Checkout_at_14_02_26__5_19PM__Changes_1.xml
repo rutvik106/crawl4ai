@@ -1,9 +1,0 @@
-<changelist name="Uncommitted_changes_before_Checkout_at_14_02_26,_5_19 PM_[Changes]1" date="1771069758766" recycled="true" deleted="true">
-  <option name="PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_14_02_26,_5_19 PM_[Changes]1/shelved.patch" />
-  <option name="DESCRIPTION" value="Uncommitted changes before Checkout at 14/02/26, 5:19 PM [Changes]" />
-  <binary>
-    <option name="BEFORE_PATH" value="dashboard/crawl4ai_dashboard.db" />
-    <option name="AFTER_PATH" value="dashboard/crawl4ai_dashboard.db" />
-    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Checkout_at_14_02_26,_5_19 PM_[Changes]1/crawl4ai_dashboard.db" />
-  </binary>
-</changelist>

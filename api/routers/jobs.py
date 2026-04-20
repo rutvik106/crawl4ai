@@ -50,6 +50,7 @@ def _job_to_response(job: Dict[str, Any]) -> JobResponse:
         output_dir=job.get("output_dir"),
         config=_parse_config(job.get("config")),
         user_id=job.get("user_id"),
+        username=job.get("username"),
         batch_id=job.get("batch_id"),
     )
 

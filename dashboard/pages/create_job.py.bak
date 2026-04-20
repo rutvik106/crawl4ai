@@ -513,7 +513,7 @@ def _step_recipients():
     email_subject = st.text_input(
         "Email subject (optional)",
         value=st.session_state.get("job_email_subject", ""),
-        placeholder=f"Crawl4AI: {st.session_state.get('job_name', 'News Feed')}",
+        placeholder=f"{st.session_state.get('job_name', 'News Feed')}",
         help="Subject line for the email notification"
     )
     st.session_state.job_email_subject = email_subject

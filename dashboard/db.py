@@ -220,7 +220,15 @@ def update_job(job_id: str, **fields) -> None:
 def get_job(job_id: str) -> Optional[Dict[str, Any]]:
     init_db()  # Ensure DB is initialized
     with _cursor(RealDictCursor) as cur:
-        cur.execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
+        cur.execute(
+            """
+            SELECT j.*, u.username AS username
+            FROM jobs j
+            LEFT JOIN users u ON u.id = j.user_id
+            WHERE j.id = %s
+            """,
+            (job_id,),
+        )
         row = cur.fetchone()
     if row:
         return dict(row)
@@ -232,12 +240,25 @@ def list_jobs(limit: int = 50, user_ids: Optional[List[int]] = None) -> List[Dic
     with _cursor(RealDictCursor) as cur:
         if user_ids is not None:
             cur.execute(
-                "SELECT * FROM jobs WHERE user_id = ANY(%s) ORDER BY created_at DESC LIMIT %s",
+                """
+                SELECT j.*, u.username AS username
+                FROM jobs j
+                LEFT JOIN users u ON u.id = j.user_id
+                WHERE j.user_id = ANY(%s)
+                ORDER BY j.created_at DESC
+                LIMIT %s
+                """,
                 (user_ids, limit),
             )
         else:
             cur.execute(
-                "SELECT * FROM jobs ORDER BY created_at DESC LIMIT %s",
+                """
+                SELECT j.*, u.username AS username
+                FROM jobs j
+                LEFT JOIN users u ON u.id = j.user_id
+                ORDER BY j.created_at DESC
+                LIMIT %s
+                """,
                 (limit,),
             )
         rows = cur.fetchall()

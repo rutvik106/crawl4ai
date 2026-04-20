@@ -1,4 +1,4 @@
-"""Schedules page — manage recurring crawl jobs."""
+"""Schedules page — manage recurring jobs."""
 
 import json
 import streamlit as st
@@ -7,7 +7,7 @@ from dashboard import db
 
 def render():
     st.title("Schedules")
-    st.caption("Manage recurring crawl jobs")
+    st.caption("Manage recurring jobs")
 
     schedules = db.list_schedules()
 

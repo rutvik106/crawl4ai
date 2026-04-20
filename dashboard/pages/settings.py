@@ -82,7 +82,7 @@ def render():
 def _send_test_email(to: str) -> None:
     payload = {
         "to": to,
-        "subject": "Crawl4AI: Test Email",
+        "subject": "Test Email",
         "html": "<h2>Crawl4AI Test Email</h2><p>If you see this, your email delivery is working correctly!</p>",
         "text": "Crawl4AI Test Email - If you see this, your email delivery is working correctly!",
     }

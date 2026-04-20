@@ -38,6 +38,7 @@ class JobResponse(BaseModel):
     output_dir: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     user_id: Optional[int] = None
+    username: Optional[str] = None
     batch_id: Optional[str] = None
 
 

@@ -67,9 +67,9 @@ async def send_test_email(request: TestEmailRequest) -> SuccessResponse:
 
     payload = {
         "to": request.to_email,
-        "subject": "Crawl4AI: Test Email",
-        "html": "<h2>Crawl4AI Test Email</h2><p>If you see this, your email delivery is working correctly!</p>",
-        "text": "Crawl4AI Test Email - If you see this, your email delivery is working correctly!",
+        "subject": "Test Email",
+        "html": "<h2>Test Email</h2><p>If you see this, your email delivery is working correctly!</p>",
+        "text": "Test Email - If you see this, your email delivery is working correctly!",
     }
 
     req = urllib.request.Request(
