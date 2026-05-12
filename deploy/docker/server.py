@@ -6,7 +6,7 @@ Crawl4AI FastAPI entry‑point
 • /crawl, /crawl/stream, /md, /llm endpoints
 """
 
-# ── stdlib & 3rd‑party imports ───────────────────────────────
+# ── stdlib & 3rd‑party imports ────────────────────────────────────────────
 from crawler_pool import get_crawler, close_all, janitor
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 from auth import create_access_token, get_token_dependency, TokenRequest
@@ -66,28 +66,28 @@ from slowapi.util import get_remote_address
 from prometheus_fastapi_instrumentator import Instrumentator
 from redis import asyncio as aioredis
 
-# ── internal imports (after sys.path append) ─────────────────
+# ── internal imports (after sys.path append) ───────────────────────────
 sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 
-# ────────────────── configuration / logging ──────────────────
+# ────────────────── configuration / logging ──────────────────────────────
 config = load_config()
 setup_logging(config)
 
-# ── attach in-memory log buffer (must be after setup_logging) ─
+# ── attach in-memory log buffer (must be after setup_logging) ─────────────────
 from log_buffer import attach_to_root_logger as _attach_log_buffer, get_recent_logs, buffer_size
 _attach_log_buffer()
 
 __version__ = "0.5.1-d1"
 
-# ── global page semaphore (hard cap) ─────────────────────────
+# ── global page semaphore (hard cap) ────────────────────────────────────
 MAX_PAGES = config["crawler"]["pool"].get("max_pages", 30)
 GLOBAL_SEM = asyncio.Semaphore(MAX_PAGES)
 
-# ── security feature flags ───────────────────────────────────
+# ── security feature flags ──────────────────────────────────────────────────
 # Hooks are disabled by default for security (RCE risk). Set to "true" to enable.
 HOOKS_ENABLED = os.environ.get("CRAWL4AI_HOOKS_ENABLED", "false").lower() == "true"
 
-# ── default browser config helper ─────────────────────────────
+# ── default browser config helper ──────────────────────────────────────────────
 def get_default_browser_config() -> BrowserConfig:
     """Get default BrowserConfig from config.yml."""
     return BrowserConfig(
@@ -103,7 +103,7 @@ async def capped_arun(self, *a, **kw):
         return await orig_arun(self, *a, **kw)
 AsyncWebCrawler.arun = capped_arun
 
-# ───────────────────── FastAPI lifespan ──────────────────────
+# ───────────────────── FastAPI lifespan ──────────────────────────────────
 
 
 @asynccontextmanager
@@ -154,14 +154,14 @@ async def _timeline_updater():
         except Exception as e:
             logger.warning(f"Timeline update error: {e}")
 
-# ───────────────────── FastAPI instance ──────────────────────
+# ───────────────────── FastAPI instance ──────────────────────────────────
 app = FastAPI(
     title=config["app"]["title"],
     version=config["app"]["version"],
     lifespan=lifespan,
 )
 
-# ── static playground ──────────────────────────────────────
+# ── static playground ────────────────────────────────────────────────────────
 STATIC_DIR = pathlib.Path(__file__).parent / "static" / "playground"
 if not STATIC_DIR.exists():
     raise RuntimeError(f"Playground assets not found at {STATIC_DIR}")
@@ -171,7 +171,7 @@ app.mount(
     name="play",
 )
 
-# ── static monitor dashboard ────────────────────────────────
+# ── static monitor dashboard ──────────────────────────────────────────────────
 MONITOR_DIR = pathlib.Path(__file__).parent / "static" / "monitor"
 if not MONITOR_DIR.exists():
     raise RuntimeError(f"Monitor assets not found at {MONITOR_DIR}")
@@ -181,7 +181,7 @@ app.mount(
     name="monitor_ui",
 )
 
-# ── static assets (logo, etc) ────────────────────────────────
+# ── static assets (logo, etc) ──────────────────────────────────────────────────
 ASSETS_DIR = pathlib.Path(__file__).parent / "static" / "assets"
 if ASSETS_DIR.exists():
     app.mount(
@@ -195,7 +195,7 @@ if ASSETS_DIR.exists():
 async def root():
     return RedirectResponse("/playground")
 
-# ─────────────────── infra / middleware  ─────────────────────
+# ─────────────────── infra / middleware  ─────────────────────────────────────
 redis = aioredis.from_url(config["redis"].get("uri", "redis://localhost"))
 
 limiter = Limiter(
@@ -232,7 +232,7 @@ async def add_security_headers(request: Request, call_next):
         resp.headers.update(config["security"]["headers"])
     return resp
 
-# ───────────────── URL validation helper ─────────────────
+# ───────────────── URL validation helper ────────────────────────────────────
 ALLOWED_URL_SCHEMES = ("http://", "https://")
 ALLOWED_URL_SCHEMES_WITH_RAW = ("http://", "https://", "raw:", "raw://")
 
@@ -245,7 +245,7 @@ def validate_url_scheme(url: str, allow_raw: bool = False) -> None:
         raise HTTPException(400, f"URL must start with {schemes}")
 
 
-# ───────────────── safe config‑dump helper ─────────────────
+# ───────────────── safe config‑dump helper ───────────────────────────────────
 ALLOWED_TYPES = {
     "CrawlerRunConfig": CrawlerRunConfig,
     "BrowserConfig": BrowserConfig,
@@ -270,16 +270,20 @@ def _safe_eval_config(expr: str) -> dict:
     return obj.dump()
 
 
-# ── job router ──────────────────────────────────────────────
+# ── job router ────────────────────────────────────────────────────────────────
 app.include_router(init_job_router(redis, config, token_dep))
 
-# ── monitor router ──────────────────────────────────────────
+# ── monitor router ──────────────────────────────────────────────────────────────
 from monitor_routes import router as monitor_router
 app.include_router(monitor_router)
 
+# ── pharma intelligence router ───────────────────────────────────────────────────
+from intelligence_routes import init_intelligence_router
+app.include_router(init_intelligence_router(redis, config, token_dep))
+
 logger = logging.getLogger(__name__)
 
-# ──────────────────────── Endpoints ──────────────────────────
+# ────────────────────────────── Endpoints ──────────────────────────────────
 @app.post("/token")
 async def get_token(req: TokenRequest):
     if not verify_email_domain(req.email):
@@ -296,7 +300,7 @@ async def config_dump(raw: RawCode):
         raise HTTPException(400, str(e))
 
 
-# ── Admin: in-memory log viewer ──────────────────────────────
+# ── Admin: in-memory log viewer ──────────────────────────────────────────────────
 @app.get("/admin/logs")
 async def admin_logs(
     limit: int = Query(200, ge=1, le=2000, description="Max log lines to return"),
@@ -686,7 +690,7 @@ attach_mcp(
     base_url=f"http://{config['app']['host']}:{config['app']['port']}"
 )
 
-# ────────────────────────── cli ──────────────────────────────
+# ────────────────────────────── cli ──────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
@@ -696,4 +700,4 @@ if __name__ == "__main__":
         reload=config["app"]["reload"],
         timeout_keep_alive=config["app"]["timeout_keep_alive"],
     )
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────
