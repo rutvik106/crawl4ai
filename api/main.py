@@ -1,19 +1,12 @@
 """FastAPI main application for Crawl4AI.
 
-This module provides REST API endpoints for managing crawl jobs,
-schedules, settings, and retrieving dashboard statistics.
-
 To run the API server:
     uvicorn api.main:app --reload --port 8000
-
-Or using Python directly:
-    python -m uvicorn api.main:app --reload --port 8000
 """
 
 import os
 import sys
 
-# Ensure project root is on the path
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
@@ -32,13 +25,12 @@ from api.routers import jobs, schedules, settings, stats
 from api.routers import auth as auth_router
 from api.routers import users as users_router
 from api.routers import logs as logs_router
+from api.routers import intelligence as intelligence_router
 
-# Attach in-memory log buffer as early as possible
 attach_to_root_logger()
 
 
 def _seed_super_admin() -> None:
-    """Create or refresh the super-admin account from environment variables."""
     username = os.getenv("SUPER_ADMIN_USERNAME", "superadmin")
     password = os.getenv("SUPER_ADMIN_PASSWORD", "SuperAdmin123!")
     db.upsert_super_admin(username, hash_password(password))
@@ -46,24 +38,12 @@ def _seed_super_admin() -> None:
 
 
 def _recover_unfinished_jobs() -> None:
-    """On startup, re-queue pending jobs and reset interrupted running jobs.
-
-    When the server restarts the in-memory job queue is wiped, so any job
-    that was 'pending' or 'running' at the time of the restart would be
-    stuck in that state forever.  This function:
-      - Re-queues 'pending' jobs so they execute normally.
-      - Marks 'running' jobs as 'failed' (they were mid-execution when the
-        server died and cannot be safely resumed).
-    """
     try:
         unfinished = db.get_unfinished_jobs()
         if not unfinished:
             return
-
         pending = [j for j in unfinished if j["status"] == "pending"]
         interrupted = [j for j in unfinished if j["status"] == "running"]
-
-        # Jobs that were mid-run when the server crashed — mark failed
         for job in interrupted:
             db.update_job(
                 job["id"],
@@ -71,12 +51,9 @@ def _recover_unfinished_jobs() -> None:
                 error="Job was interrupted by a server restart and could not be resumed.",
             )
             print(f"[api] Marked interrupted job {job['id']} ({job['name']!r}) as failed")
-
-        # Jobs that were queued but never started — re-queue them
         for job in pending:
             run_job_async(job["id"])
             print(f"[api] Re-queued pending job {job['id']} ({job['name']!r})")
-
         if interrupted or pending:
             print(
                 f"[api] Startup recovery: {len(interrupted)} interrupted job(s) marked failed, "
@@ -88,7 +65,6 @@ def _recover_unfinished_jobs() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage application lifespan - start scheduler on startup, cleanup on shutdown."""
     print("[api] Starting up...")
     get_scheduler()
     print("[api] Scheduler initialized and running")
@@ -102,7 +78,6 @@ async def lifespan(app: FastAPI):
     scheduler_shutdown()
 
 
-# Create FastAPI app with lifespan manager
 app = FastAPI(
     title="Crawl4AI API",
     description="REST API for web crawling and job management",
@@ -112,7 +87,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -121,7 +95,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers with /api prefix
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(users_router.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
@@ -129,11 +102,11 @@ app.include_router(schedules.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
 app.include_router(logs_router.router, prefix="/api")
+app.include_router(intelligence_router.router, prefix="/api")
 
 
 @app.get("/")
 async def root():
-    """Root endpoint with API info."""
     return {
         "message": "Crawl4AI API",
         "version": "1.0.0",
@@ -146,13 +119,13 @@ async def root():
             "settings": "/api/settings",
             "stats": "/api/stats",
             "logs": "/api/logs",
+            "intelligence": "/api/intelligence",
         },
     }
 
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
     return {"status": "healthy"}
 
 
