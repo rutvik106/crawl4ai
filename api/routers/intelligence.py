@@ -49,13 +49,20 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "kpi_weights": KPI_WEIGHTS,
     "key_highlight_score_threshold": KEY_HIGHLIGHT_SCORE_THRESHOLD,
     "min_score_threshold": 10,
+    "bundle_configs": {
+        "regulatory_agencies": {"enabled": True, "kpi_focus": ["approval", "label_expansion"]},
+        "pharma_news": {"enabled": True, "kpi_focus": ["ma", "licensing", "clinical_outcome"]},
+        "clinical_trials": {"enabled": True, "kpi_focus": ["clinical_outcome"]},
+        "patent_ip": {"enabled": True, "kpi_focus": ["patent"]},
+        "corporate_pr": {"enabled": True, "kpi_focus": ["ma", "licensing"]},
+    },
 }
 
 _COMPLETED_STATUSES = ("completed", "completed_empty")
 _tables_ready = False
 
 
-# ── PostgreSQL helpers (sync, called via asyncio.to_thread) ────────────────────
+# ── PostgreSQL helpers (sync, called via asyncio.to_thread) ──────────────────────
 
 def _connect():
     return psycopg2.connect(DATABASE_URL)
@@ -139,7 +146,11 @@ def _get_config() -> Dict[str, Any]:
     if not row:
         return dict(DEFAULT_CONFIG)
     cfg = row["config"]
-    return cfg if isinstance(cfg, dict) else json.loads(cfg)
+    stored = cfg if isinstance(cfg, dict) else json.loads(cfg)
+    # Merge with defaults so new keys (like bundle_configs) are always present
+    merged = dict(DEFAULT_CONFIG)
+    merged.update(stored)
+    return merged
 
 
 def _store_config(cfg: Dict[str, Any]) -> None:
@@ -252,7 +263,7 @@ def _make_llm_client() -> Optional[Callable[[str, str], str]]:
     return call_llm
 
 
-# ── Request models ───────────────────────────────────────────────────────────
+# ── Request models ───────────────────────────────────────────────
 
 class ArticleInput(BaseModel):
     title: str
@@ -274,9 +285,10 @@ class KPIConfigUpdate(BaseModel):
     kpi_weights: Optional[Dict[str, int]] = None
     key_highlight_score_threshold: Optional[int] = None
     min_score_threshold: Optional[int] = None
+    bundle_configs: Optional[Dict[str, Any]] = None
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────────
+# ── Endpoints ────────────────────────────────────────────────
 
 @router.get("/intelligence/report")
 async def get_report(
@@ -354,6 +366,8 @@ async def update_config(
         current["key_highlight_score_threshold"] = payload.key_highlight_score_threshold
     if payload.min_score_threshold is not None:
         current["min_score_threshold"] = payload.min_score_threshold
+    if payload.bundle_configs is not None:
+        current["bundle_configs"] = payload.bundle_configs
     await asyncio.to_thread(_store_config, current)
     return JSONResponse({"status": "ok", "config": current})
 
