@@ -110,9 +110,19 @@ def _store_config(cfg: Dict) -> None:
     conn.close()
 
 
-# ── LLM client (reads OPENAI_API_KEY env var; falls back to rule-based) ────────────
+# ── LLM client ────────────────────────────────────────────────────────────────
+# Provider is selected via PHARMA_LLM_PROVIDER ("openai" | "anthropic").
+# This lets us A/B the same articles across models (e.g. GPT vs Claude) without
+# changing pipeline code. Falls back to rule-based processing if unavailable.
 
 def _make_llm_client() -> Optional[Callable[[str, str], str]]:
+    provider = os.environ.get("PHARMA_LLM_PROVIDER", "openai").strip().lower()
+    if provider == "anthropic":
+        return _make_anthropic_client()
+    return _make_openai_client()
+
+
+def _make_openai_client() -> Optional[Callable[[str, str], str]]:
     try:
         import openai
         api_key = os.environ.get("OPENAI_API_KEY")
@@ -126,9 +136,43 @@ def _make_llm_client() -> Optional[Callable[[str, str], str]]:
                 model=model,
                 messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
                 temperature=0.1,
-                max_tokens=1024,
+                max_tokens=2048,
             )
             return resp.choices[0].message.content or ""
+
+        return call_llm
+    except Exception:
+        return None
+
+
+def _make_anthropic_client() -> Optional[Callable[[str, str], str]]:
+    """Native Anthropic Claude adapter.
+
+    Claude takes the system prompt as a top-level argument (not a message role),
+    so we map our (system, user) signature accordingly. Reads ANTHROPIC_API_KEY
+    and PHARMA_LLM_MODEL (defaults to a current Claude model).
+    """
+    try:
+        import anthropic
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            return None
+        model = os.environ.get("PHARMA_LLM_MODEL", "claude-3-5-sonnet-latest")
+        client = anthropic.Anthropic(api_key=api_key)
+
+        def call_llm(system: str, user: str) -> str:
+            resp = client.messages.create(
+                model=model,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+                temperature=0.1,
+                max_tokens=2048,
+            )
+            parts = [
+                block.text for block in resp.content
+                if getattr(block, "type", None) == "text"
+            ]
+            return "".join(parts)
 
         return call_llm
     except Exception:
@@ -208,7 +252,11 @@ async def process_articles(
     all_items = [r.to_dict() for r in results]
     summary = formatter.format_json_summary(all_items)
     summary["generated_at"] = date_str
-    summary["excluded_count"] = len(payload.articles) - len(results)
+    # Never-drop policy: no article is discarded. The only reduction in count comes
+    # from de-duplication (multiple sources merged into one consolidated item).
+    summary["demoted_count"] = sum(1 for r in results if r.demoted)
+    summary["consolidated_count"] = len(payload.articles) - len(results)
+    summary["excluded_count"] = 0  # retained for backward compatibility
 
     await asyncio.to_thread(_store_result, date_str, summary)
     return JSONResponse(summary)

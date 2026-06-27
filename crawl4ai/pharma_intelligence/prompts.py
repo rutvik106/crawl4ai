@@ -125,7 +125,9 @@ Return JSON:
 
 
 SUMMARIZATION_PROMPT = """\
-Write a leadership-ready intelligence summary for this pharma event.
+Write a leadership-ready intelligence brief for this pharma event. The reader is a
+pharma executive who wants the substance of the story, not a one-line headline.
+Capture the "zest" of the news: what happened, the hard numbers, and why it matters.
 
 Article Title: {title}
 Article Text: {text}
@@ -135,21 +137,33 @@ Indication: {indication}
 Event Type: {event_type}
 
 Requirements:
-- Exactly 2-3 sentences, no more, no less
-- Lead with the most impactful fact (the actual outcome/decision)
-- Include: what happened, which molecule/company, and the strategic significance
-- Use precise, active voice
-- Include specific numbers, endpoints, or deal values where available
-- AVOID: "In a significant development", "It is worth noting", "notably", filler phrases
-- If Phase III: state whether primary endpoint was met and the therapy area
-- If approval: state molecule name, indication, and geography
-- If M&A: state acquirer, target, and deal value if known
+- Write 4-6 sentences of substantive, analytical detail (NOT a single vague line).
+- Lead with the most impactful fact (the actual outcome/decision), then add context.
+- Always include: what happened, the molecule/company, the specific numbers
+  (endpoints, %, p-values, deal values, sales figures, patient counts) and the
+  strategic significance for the company and the market.
+- Use precise, active voice. AVOID filler like "In a significant development",
+  "It is worth noting", "notably".
+- If Phase III/pivotal: state whether the primary endpoint was met, the key efficacy
+  and safety results (with numbers), the comparator, and the therapy area.
+- If an approval: state molecule, indication, geography, AND whether the product is
+  already approved or marketed in OTHER geographies (e.g. "already approved by the FDA
+  and EMA"); note competitive/first-in-class status if known.
+- If M&A/licensing: state acquirer, target, deal value, the assets/portfolio gained,
+  and the strategic rationale.
+- Then provide 2-4 sharp analytical bullet points ("key_points") that a leadership
+  team would care about (e.g. market size, cross-geography approval status, generic
+  erosion risk, competitive implication, next catalyst/timeline).
 
 Return JSON:
 {{
-  "summary": "2-3 sentence leadership summary here.",
+  "summary": "4-6 sentence analytical brief with concrete numbers and significance.",
   "headline": "8-12 word factual headline",
-  "key_metric": "single most important number/stat if present, else null"
+  "key_metric": "single most important number/stat if present, else null",
+  "key_points": [
+    "Sharp analytical insight 1 (numbers/strategic implication)",
+    "Sharp analytical insight 2 (e.g. approval status in other geographies)"
+  ]
 }}"""
 
 

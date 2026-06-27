@@ -30,10 +30,15 @@ class LeadershipSummarizer:
         try:
             response = self.llm_client(SYSTEM_PHARMA_EXPERT, user_prompt)
             data = _parse_json(response)
+            key_points = data.get("key_points") or []
+            if not isinstance(key_points, list):
+                key_points = [str(key_points)]
+            key_points = [str(p).strip() for p in key_points if str(p).strip()]
             return {
-                "summary": data.get("summary", self._extract_lead_sentences(text)),
+                "summary": data.get("summary") or self._extract_lead_sentences(text),
                 "headline": data.get("headline", title[:80]),
                 "key_metric": data.get("key_metric"),
+                "key_points": key_points,
             }
         except Exception:
             return self._summarize_with_rules(title, text, entities)
@@ -43,16 +48,44 @@ class LeadershipSummarizer:
             "summary": self._extract_lead_sentences(text),
             "headline": title[:100],
             "key_metric": self._extract_key_metric(text),
+            "key_points": self._derive_key_points(text, entities),
         }
 
     @staticmethod
-    def _extract_lead_sentences(text: str, n: int = 2) -> str:
+    def _extract_lead_sentences(text: str, n: int = 4) -> str:
         sentences = re.split(r"(?<=[.!?])\s+", text.strip())
         meaningful = [
             s.strip() for s in sentences
             if len(s.strip()) > 40 and not s.strip().lower().startswith(("click", "read more", "subscribe", "follow us"))
         ]
-        return " ".join(meaningful[:n]) if meaningful else text[:300]
+        return " ".join(meaningful[:n]) if meaningful else text[:600]
+
+    @staticmethod
+    def _derive_key_points(text: str, entities: Dict) -> list:
+        """Heuristic analytical bullets for the rule-based (no-LLM) fallback."""
+        points: list = []
+        geography = entities.get("geography")
+        regulatory_body = entities.get("regulatory_body")
+        if regulatory_body and geography:
+            points.append(f"Regulatory action by {regulatory_body} in {geography}.")
+        elif regulatory_body:
+            points.append(f"Regulatory action involving {regulatory_body}.")
+        trial_phase = entities.get("trial_phase")
+        if trial_phase:
+            points.append(f"Clinical stage: {trial_phase}.")
+        deal_value = entities.get("deal_value")
+        if deal_value:
+            points.append(f"Reported deal value: {deal_value}.")
+        # Pull out sentences that carry hard numbers (results / market size signals).
+        for sentence in re.split(r"(?<=[.!?])\s+", text.strip()):
+            s = sentence.strip()
+            if len(points) >= 4:
+                break
+            if len(s) > 40 and re.search(r"\d", s) and re.search(
+                r"(billion|million|%|patient|sales|endpoint|phase|approv|launch)", s, re.IGNORECASE
+            ):
+                points.append(s)
+        return points[:4]
 
     @staticmethod
     def _extract_key_metric(text: str) -> Optional[str]:

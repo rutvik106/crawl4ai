@@ -1,0 +1,332 @@
+{
+  "total_articles_processed": 10,
+  "key_highlights_count": 6,
+  "other_news_count": 4,
+  "key_highlights": [
+    {
+      "title": "Lupin gets orphan drug designation for pediatric rare disease candidate",
+      "headline": "Lupin gets orphan drug designation for pediatric rare disease candidate",
+      "molecule": null,
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "FDA Approval",
+        "Clinical Trial",
+        "Orphan Drug Designation",
+        "Rare Disease",
+        "Indian Market"
+      ],
+      "primary_category": "FDA Approval",
+      "therapy_area": "Rare Disease",
+      "summary": "Lupin Limited has announced that its novel small molecule candidate for the treatment of Duchenne muscular dystrophy has received orphan drug designation from the FDA. The designation provides Lupin with 7 years of market exclusivity upon approval and waiver of FDA application fees. The candidate is currently in Phase II clinical trials with 48 patients enrolled across 12 sites in the US. Top-line results are expected in Q1 2026.",
+      "key_points": [
+        "Regulatory action involving FDA.",
+        "Clinical stage: Phase II.",
+        "The designation provides Lupin with 7 years of market exclusivity upon approval and waiver of FDA application fees.",
+        "The candidate is currently in Phase II clinical trials with 48 patients enrolled across 12 sites in the US."
+      ],
+      "key_metric": null,
+      "relevance_score": 68,
+      "is_key_highlight": true,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://lupin.com/media/fda-orphan-drug-designation-2025",
+      "source": "Lupin",
+      "sources": [
+        "Lupin",
+        "FDA"
+      ],
+      "is_consolidated": true,
+      "published_at": "2025-06-14"
+    },
+    {
+      "title": "Glenmark gets USFDA approval for dermatology product",
+      "headline": "Glenmark gets USFDA approval for dermatology product",
+      "molecule": null,
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "FDA Approval",
+        "Indian Market"
+      ],
+      "primary_category": "FDA Approval",
+      "therapy_area": null,
+      "summary": "Glenmark Pharmaceuticals has received approval from the USFDA for its topical cream for the treatment of inflammatory skin conditions. The product is the generic equivalent of a branded product with annual US sales of approximately $120 million. Glenmark plans to launch the product in the next quarter.",
+      "key_points": [
+        "The product is the generic equivalent of a branded product with annual US sales of approximately $120 million."
+      ],
+      "key_metric": "$120 million",
+      "relevance_score": 68,
+      "is_key_highlight": true,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://glenmarkpharma.com/usfda-dermatology-approval",
+      "source": "Glenmark",
+      "sources": [
+        "Glenmark"
+      ],
+      "is_consolidated": false,
+      "published_at": "2025-06-16"
+    },
+    {
+      "title": "Sun Pharma gets CDSCO nod for novel oncology biosimilar",
+      "headline": "Sun Pharma gets CDSCO nod for novel oncology biosimilar",
+      "molecule": null,
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "CDSCO Approval",
+        "Manufacturing",
+        "Biosimilar",
+        "Oncology",
+        "Indian Market"
+      ],
+      "primary_category": "CDSCO Approval",
+      "therapy_area": "Oncology",
+      "summary": "Sun Pharmaceutical Industries has received approval from CDSCO for its trastuzumab biosimilar, indicated for HER2-positive breast cancer. The approval is based on comprehensive analytical, preclinical, and clinical data including a Phase III equivalence study. This is Sun Pharma's third oncology biosimilar approval in the past 18 months. The company has invested over ₹200 crore in developing the manufacturing facility in Gujarat.",
+      "key_points": [
+        "Regulatory action involving CDSCO.",
+        "Clinical stage: Phase III.",
+        "Sun Pharmaceutical Industries has received approval from CDSCO for its trastuzumab biosimilar, indicated for HER2-positive breast cancer.",
+        "This is Sun Pharma's third oncology biosimilar approval in the past 18 months."
+      ],
+      "key_metric": null,
+      "relevance_score": 64,
+      "is_key_highlight": true,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://sunpharma.com/media/cdsco-trastuzumab-approval",
+      "source": "Sun Pharma",
+      "sources": [
+        "Sun Pharma",
+        "CDSCO"
+      ],
+      "is_consolidated": true,
+      "published_at": "2025-06-17"
+    },
+    {
+      "title": "Biocon Biologics reports Phase III data for insulin biosimilar",
+      "headline": "Biocon Biologics reports Phase III data for insulin biosimilar",
+      "molecule": null,
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "Phase III Success",
+        "Biosimilar",
+        "Diabetes",
+        "Indian Market"
+      ],
+      "primary_category": "Phase III Success",
+      "therapy_area": "Diabetes",
+      "summary": "Biocon Biologics has presented positive Phase III data for its insulin glargine biosimilar at the American Diabetes Association conference. The study met its primary endpoint demonstrating bioequivalence to the reference product. The company plans to file for regulatory approval in Europe and India in H2 2025.",
+      "key_points": [
+        "Clinical stage: Phase III.",
+        "The company plans to file for regulatory approval in Europe and India in H2 2025."
+      ],
+      "key_metric": null,
+      "relevance_score": 63,
+      "is_key_highlight": true,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://biocon.com/clinical-trials/insulin-glargine-phase3",
+      "source": "Biocon",
+      "sources": [
+        "Biocon"
+      ],
+      "is_consolidated": false,
+      "published_at": "2025-06-15"
+    },
+    {
+      "title": "Dr. Reddy's launches generic cardiovascular drug in US market",
+      "headline": "Dr. Reddy's launches generic cardiovascular drug in US market",
+      "molecule": null,
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "FDA Approval",
+        "Cardiovascular"
+      ],
+      "primary_category": "FDA Approval",
+      "therapy_area": "Cardiovascular",
+      "summary": "Reddy's Laboratories has launched its generic version of amlodipine/atorvastatin combination tablets in the US market. The product is the generic equivalent of Pfizer's Caduet. The company has received approval from USFDA for the abbreviated new drug application. The product was launched immediately following approval.",
+      "key_points": [],
+      "key_metric": null,
+      "relevance_score": 53,
+      "is_key_highlight": true,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://drreddys.com/news/us-launch-caduet-generic",
+      "source": "Dr. Reddy's",
+      "sources": [
+        "Dr. Reddy's"
+      ],
+      "is_consolidated": false,
+      "published_at": "2025-06-18"
+    },
+    {
+      "title": "Alembic Pharmaceuticals receives EMA approval for oncology product",
+      "headline": "Alembic Pharmaceuticals receives EMA approval for oncology product",
+      "molecule": null,
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "EMA Approval",
+        "Oncology"
+      ],
+      "primary_category": "EMA Approval",
+      "therapy_area": "Oncology",
+      "summary": "Alembic Pharmaceuticals has received marketing authorization from the European Medicines Agency for its generic oncology product used in the treatment of multiple myeloma. This is Alembic's second EMA approval for an oncology product in 2025.",
+      "key_points": [
+        "Regulatory action involving EMA.",
+        "This is Alembic's second EMA approval for an oncology product in 2025."
+      ],
+      "key_metric": null,
+      "relevance_score": 51,
+      "is_key_highlight": true,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://alembicpharmaceuticals.com/ema-oncology-approval",
+      "source": "Alembic",
+      "sources": [
+        "Alembic"
+      ],
+      "is_consolidated": false,
+      "published_at": "2025-06-13"
+    }
+  ],
+  "other_news": [
+    {
+      "title": "Torrent Pharma acquires German specialty pharma company for €450M",
+      "headline": "Torrent Pharma acquires German specialty pharma company for €450M",
+      "molecule": null,
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "M&A Activity",
+        "Cardiovascular",
+        "Indian Market"
+      ],
+      "primary_category": "M&A Activity",
+      "therapy_area": "Cardiovascular",
+      "summary": "Torrent Pharmaceuticals has announced the acquisition of Berlin-based specialty pharmaceutical company Heumann Pharma for €450 million. The acquisition gives Torrent access to Heumann's portfolio of 85 registered products across cardiovascular, CNS, and pain therapeutic areas in Germany and Eastern European markets. The transaction is expected to close in Q3 2025, subject to regulatory approvals. Heumann reported revenues of €180 million in 2024 with EBITDA margins of 28%.",
+      "key_points": [
+        "Torrent Pharmaceuticals has announced the acquisition of Berlin-based specialty pharmaceutical company Heumann Pharma for €450 million.",
+        "The transaction is expected to close in Q3 2025, subject to regulatory approvals.",
+        "Heumann reported revenues of €180 million in 2024 with EBITDA margins of 28%."
+      ],
+      "key_metric": null,
+      "relevance_score": 58,
+      "is_key_highlight": false,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://torrentpharma.com/investors/acquisitions/heumann-2025",
+      "source": "Business Wire",
+      "sources": [
+        "Business Wire"
+      ],
+      "is_consolidated": false,
+      "published_at": "2025-06-16"
+    },
+    {
+      "title": "Strides Pharma secures licensing deal for emerging markets",
+      "headline": "Strides Pharma secures licensing deal for emerging markets",
+      "molecule": null,
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "Licensing Deal"
+      ],
+      "primary_category": "Licensing Deal",
+      "therapy_area": null,
+      "summary": "Strides Pharma Science has entered into a licensing agreement with a European pharma company for the commercialization of 12 oral solid dosage products in Africa and Southeast Asian markets. The deal includes upfront payments of $8 million plus double-digit royalties on net sales.",
+      "key_points": [
+        "The deal includes upfront payments of $8 million plus double-digit royalties on net sales."
+      ],
+      "key_metric": "$8 million",
+      "relevance_score": 41,
+      "is_key_highlight": false,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://strides.com/licensing-emerging-markets-2025",
+      "source": "Strides",
+      "sources": [
+        "Strides"
+      ],
+      "is_consolidated": false,
+      "published_at": "2025-06-14"
+    },
+    {
+      "title": "Cipla expands manufacturing capacity for respiratory products",
+      "headline": "Cipla expands manufacturing capacity for respiratory products",
+      "molecule": null,
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "Manufacturing",
+        "Respiratory",
+        "Indian Market"
+      ],
+      "primary_category": "Manufacturing",
+      "therapy_area": "Respiratory",
+      "summary": "Cipla has announced the expansion of its manufacturing facility in Indore with an investment of ₹150 crore. The expansion will increase the company's capacity for metered-dose inhalers by 40%. The facility is expected to be operational by Q4 2025.",
+      "key_points": [
+        "The expansion will increase the company's capacity for metered-dose inhalers by 40%."
+      ],
+      "key_metric": null,
+      "relevance_score": 28,
+      "is_key_highlight": false,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://cipla.com/media/indore-expansion-2025",
+      "source": "Cipla",
+      "sources": [
+        "Cipla"
+      ],
+      "is_consolidated": false,
+      "published_at": "2025-06-17"
+    },
+    {
+      "title": "Wockhardt initiates Phase I study for novel antibiotic",
+      "headline": "Wockhardt initiates Phase I study for novel antibiotic",
+      "molecule": null,
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "Infectious Disease"
+      ],
+      "primary_category": "Infectious Disease",
+      "therapy_area": "Infectious Disease",
+      "summary": "Wockhardt has announced the initiation of a Phase I clinical study for its novel antibiotic candidate targeting multi-drug resistant bacterial infections. The study will enroll 60 healthy volunteers across sites in the UK.",
+      "key_points": [
+        "Clinical stage: Phase I."
+      ],
+      "key_metric": null,
+      "relevance_score": 13,
+      "is_key_highlight": false,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://wockhardt.com/research/phase1-antibiotic",
+      "source": "Wockhardt",
+      "sources": [
+        "Wockhardt"
+      ],
+      "is_consolidated": false,
+      "published_at": "2025-06-12"
+    }
+  ],
+  "generated_at": "2026-06-27",
+  "demoted_count": 0,
+  "consolidated_count": 2,
+  "excluded_count": 0,
+  "pipeline_version": "v1.1.0"
+}

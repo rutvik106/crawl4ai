@@ -154,10 +154,15 @@ COMPILED_EXCLUSIONS = [
 ]
 
 STRONG_INCLUDE_PATTERNS: List[str] = [
-    r"\bfda.*approv",
-    r"\bapprov.*fda",
-    r"\bema.*approv",
-    r"\bapprov.*ema",
+    # Any major regulator + an approval-type verb within a short window. This keeps
+    # genuine approvals (incl. CDSCO/NMPA/MHRA, "nod", "clearance", "marketing
+    # authorization") as Key Highlights even when the body incidentally mentions
+    # excluded terms like "preclinical" or "Phase II".
+    r"\b(?:us)?fda\b.{0,40}\b(?:approv|nod|clear|grant|authori[sz])",
+    r"\b(?:approv|nod|clear|grant|authori[sz])\w*\b.{0,40}\b(?:us)?fda\b",
+    r"\b(?:ema|cdsco|nmpa|mhra|tga|pmda)\b.{0,40}\b(?:approv|nod|clear|grant|authori[sz])",
+    r"\b(?:approv|nod|clear|grant|authori[sz])\w*\b.{0,40}\b(?:ema|cdsco|nmpa|mhra|tga|pmda)\b",
+    r"\bmarketing authori[sz]ation\b",
     r"\bnda.*approv",
     r"\bbla.*approv",
     r"\bmaa.*approv",

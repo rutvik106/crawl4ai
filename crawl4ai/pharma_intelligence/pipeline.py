@@ -47,9 +47,14 @@ class PharmaIntelligenceResult:
     score_breakdown: Dict[str, Any] = field(default_factory=dict)
     score_rationale: str = ""
     is_key_highlight: bool = False
+    # Demotion (never-drop policy): low-value / filtered items are kept but pushed
+    # into "Other News" rather than discarded, so coverage is never silently lost.
+    demoted: bool = False
+    demotion_reason: str = ""
     summary: str = ""
     headline: str = ""
     key_metric: Optional[str] = None
+    key_points: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -69,9 +74,12 @@ class PharmaIntelligenceResult:
             "score_breakdown": self.score_breakdown,
             "score_rationale": self.score_rationale,
             "is_key_highlight": self.is_key_highlight,
+            "demoted": self.demoted,
+            "demotion_reason": self.demotion_reason,
             "summary": self.summary,
             "headline": self.headline,
             "key_metric": self.key_metric,
+            "key_points": self.key_points,
         }
 
 
@@ -95,15 +103,23 @@ class PharmaPipeline:
 
     def process(self, articles: List[PharmaArticle]) -> List[PharmaIntelligenceResult]:
         logger.info("[PharmaPipeline] Processing %d articles", len(articles))
+        # Never-drop policy: every article is retained so coverage is never lost.
+        # Low-value / filtered items are demoted into "Other News" instead of removed.
         processed: List[Dict[str, Any]] = []
-        excluded_count = 0
+        demoted_count = 0
         for article in articles:
             item = self._process_single(article)
-            if item.excluded:
-                excluded_count += 1
-            else:
-                processed.append(item.to_dict())
-        logger.info("[PharmaPipeline] %d passed, %d excluded", len(processed), excluded_count)
+            if item.demoted:
+                demoted_count += 1
+            item_dict = item.to_dict()
+            # Carry the full source text forward so the summarizer works on the
+            # article body (not just the title). Stripped from the final output.
+            item_dict["text"] = article.text or article.summary or article.title
+            processed.append(item_dict)
+        logger.info(
+            "[PharmaPipeline] %d articles retained (%d demoted to Other News)",
+            len(processed), demoted_count,
+        )
         if self.run_dedup and processed:
             processed = self.deduplicator.cluster(processed)
         results = [self._summarize_item(d) for d in processed]
@@ -132,14 +148,14 @@ class PharmaPipeline:
             logger.warning("Classification failed for '%s': %s", article.title, e)
             result.categories = ["Pipeline Update"]
             result.primary_category = "Pipeline Update"
+        # The exclusion filter is now advisory only: it flags low-value items for
+        # demotion rather than removing them from the brief.
+        filter_demote, filter_reason = False, ""
         try:
-            exclude, reason = self.filter_.should_exclude(article.title, text, event_type)
-            result.excluded = exclude
-            result.exclusion_reason = reason
+            filter_demote, filter_reason = self.filter_.should_exclude(article.title, text, event_type)
         except Exception as e:
             logger.warning("Filter failed for '%s': %s", article.title, e)
-        if result.excluded:
-            return result
+        # Scoring always runs (even for filtered items) so "Other News" stays ranked.
         try:
             score_result = self.scorer.score(article.title, result.categories, result.entities, event_type)
             result.relevance_score = score_result["total_score"]
@@ -148,9 +164,16 @@ class PharmaPipeline:
             result.is_key_highlight = score_result["is_key_highlight"]
         except Exception as e:
             logger.warning("Scoring failed for '%s': %s", article.title, e)
-        if result.relevance_score < self.min_score:
-            result.excluded = True
-            result.exclusion_reason = f"Below minimum score threshold ({result.relevance_score} < {self.min_score})"
+        if filter_demote:
+            result.demoted = True
+            result.demotion_reason = filter_reason
+        elif result.relevance_score < self.min_score:
+            result.demoted = True
+            result.demotion_reason = (
+                f"Below minimum score threshold ({result.relevance_score} < {self.min_score})"
+            )
+        if result.demoted:
+            result.is_key_highlight = False
         return result
 
     def _summarize_item(self, item_dict: Dict[str, Any]) -> PharmaIntelligenceResult:
@@ -169,6 +192,7 @@ class PharmaPipeline:
             result.summary = summ["summary"]
             result.headline = summ["headline"]
             result.key_metric = summ["key_metric"]
+            result.key_points = summ.get("key_points", []) or []
         except Exception as e:
             logger.warning("Summarization failed: %s", e)
             result.summary = item_dict.get("summary", item_dict.get("title", ""))

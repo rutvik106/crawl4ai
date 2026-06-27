@@ -77,9 +77,12 @@ class PharmaEmailFormatter:
             "primary_category": item.get("primary_category", ""),
             "therapy_area": item.get("therapy_area"),
             "summary": item.get("summary", ""),
+            "key_points": item.get("key_points", []),
             "key_metric": item.get("key_metric"),
             "relevance_score": item.get("relevance_score", 0),
             "is_key_highlight": item.get("is_key_highlight", False),
+            "demoted": item.get("demoted", False),
+            "demotion_reason": item.get("demotion_reason", ""),
             "url": item.get("url", ""),
             "source": item.get("source", ""),
             "sources": item.get("sources", []),
@@ -156,6 +159,7 @@ class PharmaEmailFormatter:
         categories = item.get("categories", [])
         therapy = item.get("therapy_area") or ""
         summary = item.get("summary") or item.get("headline") or item.get("title") or ""
+        key_points = item.get("key_points") or []
         key_metric = item.get("key_metric")
         url = item.get("url", "#")
         score = item.get("relevance_score", 0)
@@ -174,7 +178,15 @@ class PharmaEmailFormatter:
             f'padding:6px 12px;border-radius:6px;text-decoration:none;">View →</a>'
             if url and url != "#" else "—"
         )
-        comments = f'<span style="font-size:12px;color:#334155;line-height:1.5;">{summary[:280]}</span>'
+        comments = f'<span style="font-size:12px;color:#334155;line-height:1.5;">{summary[:700]}</span>'
+        if key_points:
+            bullets = "".join(
+                f'<li style="margin:2px 0;">{p[:220]}</li>' for p in key_points[:4]
+            )
+            comments += (
+                f'<ul style="margin:6px 0 0;padding-left:16px;font-size:11px;'
+                f'color:#475569;line-height:1.5;">{bullets}</ul>'
+            )
         if key_metric:
             comments += f'<br/><b style="font-size:11px;color:#0f3d52;">{key_metric}</b>'
         highlights_html = (
