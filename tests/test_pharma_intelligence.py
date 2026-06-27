@@ -209,6 +209,24 @@ def test_formatter_renders_key_points():
     assert "<html" in html.lower()
 
 
+def test_formatter_matches_three_column_specimen():
+    """The email table must follow the client's 3-column 'Daily Bites' specimen:
+    Molecule/Particular | Highlights (Key) | View Article (no extra columns)."""
+    pipeline = PharmaPipeline(llm_client=None, min_score_threshold=10)
+    results = pipeline.process([HIGH_VALUE_ARTICLE])
+    items = [r.to_dict() for r in results]
+    html = PharmaEmailFormatter().format_report(items)
+
+    assert "Molecule/Particular" in html
+    assert "Highlights (Key)" in html
+    assert "View Article" in html
+    assert "Read the full article" in html
+    # The old 4th "Comments" column header must be gone.
+    assert ">Comments<" not in html
+    # Exactly three header cells per rendered section table.
+    assert html.count("Molecule/Particular") == html.count("Highlights (Key)")
+
+
 # ── 4. LLM provider routing (OpenAI vs native Anthropic) ──────────────────────────
 
 def test_llm_provider_selection(monkeypatch):
@@ -231,8 +249,13 @@ def test_llm_provider_selection(monkeypatch):
 
 def test_clients_return_none_without_keys(monkeypatch):
     from api.routers import intelligence
+    from dashboard import db
 
+    # The OpenAI/Groq client also reads keys from DB-stored settings; stub it out
+    # so the test is deterministic and never touches the real database.
+    monkeypatch.setattr(db, "get_all_settings", lambda: {})
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert intelligence._make_openai_client() is None
     assert intelligence._make_anthropic_client() is None

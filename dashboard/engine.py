@@ -51,77 +51,9 @@ from crawl4ai import (
 from crawl4ai.output.job import create_job_outputs, generate_job_id
 from crawl4ai.output.base import OutputManager
 from crawl4ai.output.vercel_blob_output import VercelBlobOutput
+from crawl4ai.pharma_intelligence.recency import is_within_last_24h
 
 from . import db
-
-
-def _is_today_article(item: dict, today: "datetime.date") -> bool:
-    """Return True if the article appears to have been published today (IST).
-
-    Decision logic (in priority order):
-    1. seconds / minutes / hours ago  → today  (hours capped at 23)
-    2. "just now" / "today"           → today
-    3. "yesterday" / "X day(s) ago"   → not today
-    4. "week" / "month" / "year"      → not today
-    5. Recognisable date string       → compare with today's date
-    6. No usable date info            → include by default (don't silently drop)
-    """
-    raw = (
-        str(item.get("time_ago") or "")
-        + " "
-        + str(item.get("published_date") or "")
-    ).lower().strip()
-
-    if not raw.strip():
-        return True  # no date info → keep
-
-    # ── clearly today ──────────────────────────────────────────────────────
-    if re.search(r"\bjust now\b|\bmoments? ago\b|\btoday\b", raw):
-        return True
-    if re.search(r"\b\d+\s*s(ec(ond)?s?)?\b|\b\d+\s*min(ute)?s?\s*ago\b", raw):
-        return True
-    m = re.search(r"\b(\d+)\s*h(our)?s?\s*(ago)?\b", raw)
-    if m:
-        return int(m.group(1)) <= 23
-
-    # ── clearly NOT today ──────────────────────────────────────────────────
-    if re.search(r"\byesterday\b", raw):
-        return False
-    if re.search(r"\b([1-9]\d*)\s*days?\s*ago\b", raw):
-        return False
-    if re.search(r"\bweeks?\b|\bmonths?\b|\byears?\b", raw):
-        return False
-
-    # ── try to match a specific date ───────────────────────────────────────
-    month_names = [
-        "january", "february", "march", "april", "may", "june",
-        "july", "august", "september", "october", "november", "december",
-    ]
-    month_abbrs = [m[:3] for m in month_names]
-
-    today_patterns = [
-        today.strftime("%Y-%m-%d"),          # 2026-03-19
-        today.strftime("%d/%m/%Y"),           # 19/03/2026
-        today.strftime("%m/%d/%Y"),           # 03/19/2026
-        today.strftime("%B %d, %Y").lower(),  # march 19, 2026
-        today.strftime("%b %d, %Y").lower(),  # mar 19, 2026
-        today.strftime("%d %B %Y").lower(),   # 19 march 2026
-        today.strftime("%-d %B %Y").lower(),  # 19 march 2026 (no leading zero)
-        str(today.day),                       # bare day number (last resort)
-    ]
-    for pat in today_patterns[:-1]:          # all except bare day
-        if pat in raw:
-            return True
-
-    # If any month name appears but none of today's patterns matched → not today
-    if any(m in raw for m in month_names + month_abbrs):
-        return False
-
-    # Bare day number match (only when no other month context exists)
-    if today_patterns[-1] in raw:
-        return True
-
-    return True  # unknown format → keep by default
 
 
 def _log(msg: str) -> None:
@@ -319,9 +251,14 @@ async def _execute_job(job_id: str) -> None:
         block_images=config.get("block_images", True),
     )
 
-    # Today's date in IST — used in the extraction instruction and post-filter
-    today_ist = datetime.now(_IST)
-    today_str = today_ist.strftime("%B %-d, %Y")  # e.g. "March 19, 2026"
+    # Current IST time and the rolling 24h window — used in the extraction
+    # instruction and the post-filter. The client requirement is news published
+    # in the LAST 24 HOURS, not merely "today" (a calendar day would miss late
+    # news from the previous evening that is still within 24 hours).
+    now_ist = datetime.now(_IST)
+    now_str = now_ist.strftime("%B %-d, %Y %H:%M")          # e.g. "March 19, 2026 14:30"
+    cutoff_ist = now_ist - timedelta(hours=24)
+    cutoff_str = cutoff_ist.strftime("%B %-d, %Y %H:%M")    # 24h earlier
 
     # Schema fields
     schema_fields = config.get("schema_fields", {})
@@ -334,21 +271,22 @@ async def _execute_job(job_id: str) -> None:
                 "category": {"type": "string", "description": "Topic category"},
                 "summary": {"type": "string", "description": "One-sentence summary"},
                 "time_ago": {"type": "string", "description": "How long ago it was published, e.g. '2 hours ago', '30 minutes ago'"},
-                "published_date": {"type": "string", "description": "The publication date if explicitly shown, e.g. 'March 19, 2026' or '2026-03-19'"},
+                "published_date": {"type": "string", "description": "The publication date AND time if explicitly shown, e.g. 'March 19, 2026 09:00 ET' or '2026-03-19'"},
             },
             "required": ["title"],
         }
 
     # LLM extraction
     default_instruction = (
-        f"Today's date is {today_str} (IST, Asia/Kolkata). "
-        f"Extract ONLY actual news articles that were published TODAY ({today_str}). "
-        "DO NOT include articles from yesterday or any earlier date. "
+        f"The current date and time is {now_str} IST (Asia/Kolkata). "
+        f"Extract ONLY actual news articles published within the LAST 24 HOURS, "
+        f"i.e. on or after {cutoff_str} IST. "
+        "DO NOT include older articles. "
         "Ignore ads, promotions, newsletters, events, navigation links, and category labels. "
         "For each article include: title, source, category, summary, time_ago (e.g. '2 hours ago'), "
-        "and published_date (the exact date shown on the article, if visible). "
-        "If an article has no visible publication date or time, include it only if it appears to be recent/today. "
-        "Return a JSON array containing only today's articles."
+        "and published_date (the exact date and time shown on the article, if visible). "
+        "If an article has no visible publication date or time, include it only if it appears to be recent. "
+        "Return a JSON array containing only articles from the last 24 hours."
     )
     extraction = LLMExtractionStrategy(
         llm_config=LLMConfig(
@@ -373,6 +311,12 @@ async def _execute_job(job_id: str) -> None:
         max_scrolls=int(config.get("max_scrolls", 10)),
         scroll_delay=float(config.get("scroll_delay", 1.0)),
         click_load_more=config.get("click_load_more", True),
+        # Numbered pagination (opt-in). Needed for listings that paginate rather
+        # than infinitely scroll (e.g. PR Newswire, GlobeNewswire) so the full
+        # last-24h set is captured, not just page 1.
+        paginate=config.get("paginate", False),
+        next_page_selector=config.get("next_page_selector", ""),
+        max_pages=int(config.get("max_pages", 3)),
         follow_links=config.get("follow_links", True),
         link_selector=config.get("link_selector", "a[href]"),
         link_filter_pattern=config.get("link_filter", ""),
@@ -409,18 +353,17 @@ async def _execute_job(job_id: str) -> None:
         from crawl4ai.output.email_output import EmailOutput as EO
         articles = EO._parse_extracted(extracted)
 
-        # ── Today-only post-filter (safety net on top of LLM instruction) ──
+        # ── Last-24h post-filter (safety net on top of LLM instruction) ──
         if isinstance(articles, list) and articles:
-            today_date = today_ist.date()
             before_count = len(articles)
             articles = [
                 a for a in articles
-                if isinstance(a, dict) and _is_today_article(a, today_date)
+                if isinstance(a, dict) and is_within_last_24h(a, now_ist)
             ]
             dropped = before_count - len(articles)
             if dropped:
-                _log(f"[engine] Job {job_id}: post-filter dropped {dropped} non-today articles "
-                     f"({len(articles)} remain for {today_str})")
+                _log(f"[engine] Job {job_id}: post-filter dropped {dropped} articles older than 24h "
+                     f"({len(articles)} remain within last 24h of {now_str})")
             # Re-serialise filtered list so it's what gets stored & emailed
             extracted = json.dumps(articles)
 

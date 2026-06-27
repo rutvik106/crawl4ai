@@ -89,7 +89,7 @@ async def deep_crawl(
     from .page_actions import (
         scroll_to_bottom,
         click_load_more,
-        handle_pagination,
+        click_next_page,
         extract_links,
         take_full_screenshot,
     )
@@ -153,15 +153,58 @@ async def deep_crawl(
 
     all_content_parts = [f"=== LISTING PAGE: {url} ===\n{listing_md.raw_markdown}\n"]
 
-    # ---- Phase 5: Extract article links ----
+    # ---- Phase 5: Extract article links (across paginated pages) ----
     article_links = []
     if deep_config.follow_links:
-        article_links = await extract_links(
+        raw_links = await extract_links(
             page,
             selector=deep_config.link_selector,
             base_url=url,
             filter_pattern=deep_config.link_filter_pattern,
         )
+
+        # ---- Phase 5b: Walk numbered pagination (opt-in) ----
+        # Sites like PR Newswire / GlobeNewswire paginate their listings rather
+        # than infinitely scrolling, so without this the brief would only ever
+        # see the first page (and miss within-24h items further back).
+        if deep_config.paginate:
+            pages_walked = 1
+            while pages_walked < deep_config.max_pages:
+                advanced = await click_next_page(
+                    page,
+                    next_selector=deep_config.next_page_selector,
+                )
+                if not advanced:
+                    break
+                pages_walked += 1
+                if deep_config.scroll:
+                    await scroll_to_bottom(
+                        page,
+                        max_scrolls=deep_config.max_scrolls,
+                        scroll_delay=deep_config.scroll_delay,
+                    )
+                page_html = await page.content()
+                page_md = md_gen.convert(page_html)
+                all_content_parts.append(
+                    f"\n=== LISTING PAGE {pages_walked}: {page.url} ===\n"
+                    f"{page_md.raw_markdown}\n"
+                )
+                raw_links += await extract_links(
+                    page,
+                    selector=deep_config.link_selector,
+                    base_url=url,
+                    filter_pattern=deep_config.link_filter_pattern,
+                )
+            print(f"  Paginated through {pages_walked} listing page(s)", flush=True)
+
+        # De-duplicate links by URL (the same item may appear on multiple pages).
+        _seen_urls = set()
+        article_links = []
+        for _l in raw_links:
+            if _l["url"] not in _seen_urls:
+                _seen_urls.add(_l["url"])
+                article_links.append(_l)
+
         # Filter out non-article links (homepage, category pages, externals, anchors)
         from urllib.parse import urlparse
         base_parsed = urlparse(url)

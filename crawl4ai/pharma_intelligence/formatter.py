@@ -129,6 +129,8 @@ class PharmaEmailFormatter:
     def _render_section(self, section_title: str, items: List[Dict], style_key: str) -> str:
         style = SECTION_STYLES[style_key]
         rows = "".join(self._render_row(item, style) for item in items)
+        # 3-column layout matching the client's "Daily Bites" specimen:
+        #   Molecule/Particular | Highlights (Key) | View Article
         return f"""\
 <tr><td style="padding:24px 32px 8px;">
   <h2 style="margin:0 0 12px;font-size:15px;font-weight:700;color:{style['header_bg']};
@@ -142,68 +144,74 @@ class PharmaEmailFormatter:
 <tr><td style="padding:0 32px 16px;">
 <table width="100%" cellpadding="0" cellspacing="0">
 <thead><tr style="background:{style['header_bg']};">
-  <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#ffffff;width:15%;">Molecule</th>
-  <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#ffffff;width:40%;">Highlights</th>
-  <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#ffffff;width:30%;">Comments</th>
-  <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#ffffff;width:15%;">View Article</th>
+  <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#ffffff;width:26%;">Molecule/Particular</th>
+  <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#ffffff;width:58%;">Highlights (Key)</th>
+  <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#ffffff;width:16%;">View Article</th>
 </tr></thead>
 <tbody>{rows}</tbody>
 </table>
 </td></tr>
 """
 
+    @staticmethod
+    def _particular(item: Dict, entities: Dict) -> str:
+        """Column-1 label: the molecule/brand when available, else a concise
+        'particular' describing the deal/event (matches specimen rows such as
+        'M&A - Zydus and Assertio')."""
+        molecule = entities.get("molecule") or entities.get("brand_name")
+        if molecule:
+            return str(molecule)
+        # Non-molecule items (M&A, licensing, corporate) — fall back to the
+        # headline which the summarizer phrases as a short particular.
+        headline = item.get("headline") or item.get("title") or "—"
+        return str(headline)[:90]
+
     def _render_row(self, item: Dict, style: Dict) -> str:
         entities = item.get("entities", {})
-        molecule = entities.get("molecule") or entities.get("brand_name") or "—"
+        particular = self._particular(item, entities)
         company = entities.get("company") or ""
-        categories = item.get("categories", [])
         therapy = item.get("therapy_area") or ""
         summary = item.get("summary") or item.get("headline") or item.get("title") or ""
         key_points = item.get("key_points") or []
         key_metric = item.get("key_metric")
         url = item.get("url", "#")
-        score = item.get("relevance_score", 0)
         sources = item.get("sources") or ([item.get("source")] if item.get("source") else [])
-        source_text = " + ".join(s for s in sources if s)[:40] if sources else ""
-        badge_html = "".join(
-            f'<span style="display:inline-block;background:{style["badge_bg"]};'
-            f'color:{style["badge_text"]};font-size:10px;font-weight:600;'
-            f'padding:2px 7px;border-radius:8px;margin:2px 2px 0 0;">{cat}</span>'
-            for cat in categories[:2]
-        )
-        score_indicator = "🔴" if score >= 80 else "🟡" if score >= 60 else "🟢"
+        source_text = " + ".join(s for s in sources if s)[:60] if sources else ""
+
         link_cell = (
             f'<a href="{url}" target="_blank" style="display:inline-block;'
             f'background:#0f3d52;color:#ffffff;font-size:11px;font-weight:600;'
-            f'padding:6px 12px;border-radius:6px;text-decoration:none;">View →</a>'
+            f'padding:6px 12px;border-radius:6px;text-decoration:none;">Read the full article</a>'
             if url and url != "#" else "—"
         )
-        comments = f'<span style="font-size:12px;color:#334155;line-height:1.5;">{summary[:700]}</span>'
+
+        # Highlights (Key): the rich narrative — summary, analytical bullets and
+        # the headline key metric, mirroring the specimen's prose-style cell.
+        highlights = f'<span style="font-size:12px;color:#334155;line-height:1.55;">{summary[:900]}</span>'
         if key_points:
             bullets = "".join(
-                f'<li style="margin:2px 0;">{p[:220]}</li>' for p in key_points[:4]
+                f'<li style="margin:2px 0;">{p[:240]}</li>' for p in key_points[:4]
             )
-            comments += (
+            highlights += (
                 f'<ul style="margin:6px 0 0;padding-left:16px;font-size:11px;'
                 f'color:#475569;line-height:1.5;">{bullets}</ul>'
             )
         if key_metric:
-            comments += f'<br/><b style="font-size:11px;color:#0f3d52;">{key_metric}</b>'
-        highlights_html = (
-            f'<b style="font-size:13px;color:#0f2d3d;">{item.get("headline") or item.get("title", "")}</b><br/>'
-            f'{badge_html}<br/><span style="font-size:10px;color:#94a3b8;">{source_text}</span>'
-        )
+            highlights += f'<br/><b style="font-size:11px;color:#0f3d52;">{key_metric}</b>'
+        if source_text:
+            highlights += (
+                f'<br/><span style="font-size:10px;color:#94a3b8;">Source: {source_text}</span>'
+            )
+
         mol_html = (
-            f'<b style="font-size:13px;color:#0f2d3d;">{molecule}</b>'
+            f'<b style="font-size:13px;color:#0f2d3d;">{particular}</b>'
             + (f'<br/><span style="font-size:10px;color:#64748b;">{company}</span>' if company else '')
             + (f'<br/><span style="font-size:10px;color:#94a3b8;">{therapy}</span>' if therapy else '')
-            + f'<br/><span style="font-size:10px;color:#94a3b8;">{score_indicator} {score}/100</span>'
         )
         return (
             f'<tr style="border-bottom:1px solid #e2e8f0;">'
             f'<td style="padding:12px;vertical-align:top;background:{style["row_accent"]};">{mol_html}</td>'
-            f'<td style="padding:12px;vertical-align:top;">{highlights_html}</td>'
-            f'<td style="padding:12px;vertical-align:top;">{comments}</td>'
+            f'<td style="padding:12px;vertical-align:top;">{highlights}</td>'
             f'<td style="padding:12px;vertical-align:top;text-align:center;">{link_cell}</td>'
             f'</tr>'
         )

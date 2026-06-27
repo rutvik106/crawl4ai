@@ -17,7 +17,7 @@ import asyncio
 import json
 import logging
 import os
-from datetime import date as DateType
+from datetime import date as DateType, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
 import psycopg2
@@ -28,9 +28,11 @@ from pydantic import BaseModel
 
 from api.auth import get_current_user
 from crawl4ai.pharma_intelligence import (
+    IST,
     PharmaArticle,
     PharmaEmailFormatter,
     PharmaPipeline,
+    is_within_last_24h,
 )
 from crawl4ai.pharma_intelligence.ontology import (
     KEY_HIGHLIGHT_SCORE_THRESHOLD,
@@ -173,7 +175,13 @@ def _store_config(cfg: Dict[str, Any]) -> None:
 
 
 def _fetch_articles_for_date(date_str: str) -> List[PharmaArticle]:
-    """Pull articles from completed crawl jobs whose created_at falls on date_str."""
+    """Pull articles published in the 24h window ending on ``date_str``.
+
+    Jobs from ``date_str`` *and the prior day* are scanned so that late-evening
+    news crawled the day before is not missed, then each article is filtered to
+    the rolling 24h window via its own publication date/time (never-drop applies
+    only to relevance, not recency — stale items must not leak into the brief).
+    """
     conn = _connect()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -181,10 +189,10 @@ def _fetch_articles_for_date(date_str: str) -> List[PharmaArticle]:
                 """
                 SELECT extracted_articles FROM jobs
                 WHERE status IN %s
-                  AND created_at::date = %s::date
+                  AND created_at::date BETWEEN (%s::date - INTERVAL '1 day') AND %s::date
                 ORDER BY created_at ASC
                 """,
-                (_COMPLETED_STATUSES, date_str),
+                (_COMPLETED_STATUSES, date_str, date_str),
             )
             rows = cur.fetchall()
     finally:
@@ -205,7 +213,22 @@ def _fetch_articles_for_date(date_str: str) -> List[PharmaArticle]:
         elif isinstance(extracted, dict):
             raw.append(extracted)
 
-    return [_to_pharma_article(a) for a in raw]
+    # Reference time for the rolling window: "now" when generating today's brief,
+    # otherwise the end of the requested day (for historical re-runs).
+    today_str = DateType.today().isoformat()
+    if date_str == today_str:
+        ref = datetime.now(IST)
+    else:
+        ref = datetime.fromisoformat(date_str).replace(
+            hour=23, minute=59, second=59, tzinfo=IST
+        )
+
+    recent = [a for a in raw if is_within_last_24h(a, ref)]
+    logger.info(
+        "[intelligence] %s: %d crawled articles, %d within last 24h",
+        date_str, len(raw), len(recent),
+    )
+    return [_to_pharma_article(a) for a in recent]
 
 
 def _to_pharma_article(a: Dict[str, Any]) -> PharmaArticle:
@@ -215,11 +238,19 @@ def _to_pharma_article(a: Dict[str, Any]) -> PharmaArticle:
     text = (a.get("content") or a.get("text") or a.get("body") or summary or "").strip()
     url = (a.get("url") or a.get("link") or a.get("source_url") or "").strip()
     source = (a.get("source") or "").strip()
-    published = (a.get("published_at") or a.get("published") or a.get("date") or "").strip()
+    # Crawled articles carry recency in `published_date` / `time_ago`; older
+    # payloads may use `published_at` / `published` / `date`. Capture whichever
+    # is present so the published timestamp is never silently lost.
+    published = (
+        a.get("published_at") or a.get("published_date") or a.get("published")
+        or a.get("date") or ""
+    ).strip()
+    time_ago = (a.get("time_ago") or "").strip()
     category = (a.get("category") or "").strip()
     return PharmaArticle(
         title=title, text=text, summary=summary, url=url,
         source=source, published_at=published, category=category,
+        extra={"time_ago": time_ago} if time_ago else {},
     )
 
 # ── LLM client ────────────────────────────────────────────────────────────────

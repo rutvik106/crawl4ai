@@ -130,6 +130,48 @@ async def handle_pagination(
     return pages_html
 
 
+async def click_next_page(
+    page: Page,
+    next_selector: str = "",
+    page_delay: float = 2.0,
+) -> bool:
+    """Click a single "Next page" control. Returns True if a click succeeded.
+
+    Used to walk numbered pagination (e.g. PR Newswire / GlobeNewswire listings)
+    one page at a time so links/content can be collected per page.
+    """
+    common_next_selectors = [
+        next_selector,
+        "a:has-text('Next')",
+        "a[rel='next']",
+        "a:has-text('›')",
+        "a:has-text('»')",
+        "[aria-label='Next']",
+        "[aria-label='Next page']",
+        "li.next a",
+        "[class*='next'] a",
+        "a[class*='next']",
+        ".pagination a:last-child",
+    ]
+    for sel in dict.fromkeys(s for s in common_next_selectors if s):
+        try:
+            btn = await page.query_selector(sel)
+            if btn and await btn.is_visible():
+                disabled = await btn.get_attribute("aria-disabled")
+                if disabled and disabled.lower() == "true":
+                    continue
+                await btn.click()
+                await asyncio.sleep(page_delay)
+                try:
+                    await page.wait_for_load_state("domcontentloaded")
+                except Exception:
+                    pass
+                return True
+        except Exception:
+            continue
+    return False
+
+
 async def extract_links(
     page: Page,
     selector: str = "a[href]",
