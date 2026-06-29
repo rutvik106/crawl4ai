@@ -25,10 +25,25 @@ def render():
         type="password",
     )
 
+    anthropic_key = st.text_input(
+        "Anthropic API Key",
+        value=settings.get("anthropic_api_key", os.getenv("ANTHROPIC_API_KEY", "")),
+        type="password",
+    )
+
+    _providers = [
+        "anthropic/claude-sonnet-4-5",
+        "anthropic/claude-3-5-haiku-latest",
+        "groq/llama-3.3-70b-versatile",
+        "groq/llama-3.1-8b-instant",
+    ]
+    _current = settings.get("llm_provider", "anthropic/claude-sonnet-4-5")
+    if _current not in _providers:
+        _providers.insert(0, _current)
     llm_provider = st.selectbox(
         "Default LLM Provider",
-        ["groq/llama-3.1-8b-instant", "groq/llama-3.3-70b-versatile", "groq/mixtral-8x7b-32768"],
-        index=0,
+        _providers,
+        index=_providers.index(_current),
     )
 
     st.divider()
@@ -44,7 +59,7 @@ def render():
     )
     default_max_inner = col2.number_input(
         "Default max inner pages",
-        value=int(settings.get("default_max_inner_pages", "5")),
+        value=int(settings.get("default_max_inner_pages", "20")),
         min_value=1,
         max_value=50,
     )
@@ -60,6 +75,7 @@ def render():
 
     if st.button("💾 Save Settings", type="primary", use_container_width=True):
         db.set_setting("groq_api_key", groq_key)
+        db.set_setting("anthropic_api_key", anthropic_key)
         db.set_setting("llm_provider", llm_provider)
         db.set_setting("default_max_scrolls", str(default_max_scrolls))
         db.set_setting("default_max_inner_pages", str(default_max_inner))

@@ -29,9 +29,10 @@ def _get_settings_from_db() -> SettingsResponse:
 
     return SettingsResponse(
         groq_api_key=settings.get("groq_api_key", os.getenv("GROQ_API_KEY", "")),
-        llm_provider=settings.get("llm_provider", "groq/llama-3.1-8b-instant"),
+        anthropic_api_key=settings.get("anthropic_api_key", os.getenv("ANTHROPIC_API_KEY", "")),
+        llm_provider=settings.get("llm_provider", "anthropic/claude-sonnet-4-5"),
         default_max_scrolls=int(settings.get("default_max_scrolls", "10")),
-        default_max_inner_pages=int(settings.get("default_max_inner_pages", "5")),
+        default_max_inner_pages=int(settings.get("default_max_inner_pages", "20")),
         default_content_limit=int(settings.get("default_content_limit", "12000")),
     )
 
@@ -47,6 +48,8 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
     """Update settings."""
     if request.groq_api_key is not None:
         db.set_setting("groq_api_key", request.groq_api_key)
+    if request.anthropic_api_key is not None:
+        db.set_setting("anthropic_api_key", request.anthropic_api_key)
     if request.llm_provider is not None:
         db.set_setting("llm_provider", request.llm_provider)
     if request.default_max_scrolls is not None:

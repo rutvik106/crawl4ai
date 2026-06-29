@@ -88,7 +88,19 @@ class LLMExtractionStrategy(ExtractionStrategy):
             call_kwargs["timeout"] = 120
 
         response = await litellm.acompletion(**call_kwargs)
-        content = response.choices[0].message.content.strip()
+        choice = response.choices[0]
+        content = (choice.message.content or "").strip()
+        # A 'length' finish reason means the model hit max_tokens and the JSON is
+        # almost certainly truncated. Surface it so callers (and logs) know why a
+        # batch may be short; downstream parsing salvages the complete objects.
+        finish_reason = getattr(choice, "finish_reason", None)
+        if finish_reason == "length":
+            print(
+                f"[llm_extraction] WARNING: output truncated (finish_reason=length, "
+                f"max_tokens={self.extra_args.get('max_tokens')}). Increase max_tokens "
+                f"to capture all items.",
+                flush=True,
+            )
         return self._clean_json_response(content)
 
     @staticmethod

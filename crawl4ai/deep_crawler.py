@@ -38,6 +38,9 @@ class DeepCrawlConfig:
     scroll: bool = True
     max_scrolls: int = 15
     scroll_delay: float = 1.0
+    # Optional adaptive stop: stop scrolling/paginating once items are older than
+    # this many hours (relative-time heuristic). None = scroll up to max_scrolls.
+    recency_stop_hours: Optional[float] = None
 
     # --- Load More ---
     click_load_more: bool = True
@@ -53,7 +56,7 @@ class DeepCrawlConfig:
     follow_links: bool = True
     link_selector: str = "a[href]"
     link_filter_pattern: Optional[str] = None
-    max_inner_pages: int = 10
+    max_inner_pages: int = 20
     inner_page_delay: float = 1.0
     inner_page_timeout: float = 60.0  # seconds per inner page crawl
 
@@ -100,6 +103,12 @@ async def deep_crawl(
         "all_content": "",
         "screenshots": [],
         "article_links": [],
+        # Per-stage funnel so we can see exactly where articles are lost.
+        "stats": {
+            "raw_links_found": 0,
+            "article_links_after_filter": 0,
+            "inner_pages_crawled": 0,
+        },
     }
 
     # ---- Phase 1: Crawl the listing page with scrolling ----
@@ -130,6 +139,7 @@ async def deep_crawl(
             page,
             max_scrolls=deep_config.max_scrolls,
             scroll_delay=deep_config.scroll_delay,
+            stop_when_older_than_hours=deep_config.recency_stop_hours,
         )
         print(f"  Scrolled {scrolls} times", flush=True)
 
@@ -182,6 +192,7 @@ async def deep_crawl(
                         page,
                         max_scrolls=deep_config.max_scrolls,
                         scroll_delay=deep_config.scroll_delay,
+                        stop_when_older_than_hours=deep_config.recency_stop_hours,
                     )
                 page_html = await page.content()
                 page_md = md_gen.convert(page_html)
@@ -195,6 +206,18 @@ async def deep_crawl(
                     base_url=url,
                     filter_pattern=deep_config.link_filter_pattern,
                 )
+                # Adaptive stop: if this page's items are already older than the
+                # recency window, deeper pages are older too — stop paginating.
+                if deep_config.recency_stop_hours:
+                    from .page_actions import page_oldest_age_hours
+                    oldest = await page_oldest_age_hours(page)
+                    if oldest is not None and oldest > deep_config.recency_stop_hours:
+                        print(
+                            f"  Stopping pagination at page {pages_walked}: items older "
+                            f"than {deep_config.recency_stop_hours}h",
+                            flush=True,
+                        )
+                        break
             print(f"  Paginated through {pages_walked} listing page(s)", flush=True)
 
         # De-duplicate links by URL (the same item may appear on multiple pages).
@@ -231,21 +254,26 @@ async def deep_crawl(
             # Skip links with only a fragment
             if link["url"].startswith(url.rstrip("/") + "#"):
                 return False
-            # Skip tiny nav links
-            if len(link["text"].strip()) < 15:
+            # Skip only truly tiny nav links. The old threshold of 15 chars cut
+            # many legitimate short headlines, so we relax it.
+            if len(link["text"].strip()) < 6:
                 return False
             # Skip common non-article paths
             if _SKIP_PATTERNS.search(path):
                 return False
-            # Article links typically have a longer path (e.g., /section/year/article-slug)
-            if path.count("/") < 2:
+            # Require at least one real path segment. The old rule (>=2 slashes)
+            # discarded valid shallow article URLs like /news/12345.
+            if path.count("/") < 1:
                 return False
             return True
 
+        result["stats"]["raw_links_found"] = len(raw_links)
         article_links = [l for l in article_links if _is_article_link(l)]
         article_links = article_links[:deep_config.max_inner_pages]
         result["article_links"] = article_links
-        print(f"  Found {len(article_links)} article links to follow", flush=True)
+        result["stats"]["article_links_after_filter"] = len(article_links)
+        print(f"  Found {len(article_links)} article links to follow "
+              f"(from {len(raw_links)} raw links)", flush=True)
 
     # ---- Phase 6: Take screenshot (optional, after content is captured) ----
     screenshots = []
@@ -315,6 +343,7 @@ async def deep_crawl(
             await asyncio.sleep(deep_config.inner_page_delay)
 
         result["inner_results"] = inner_results
+        result["stats"]["inner_pages_crawled"] = len(inner_results)
         print(f"  Crawled {len(inner_results)} inner pages successfully", flush=True)
 
     # ---- Phase 8: Aggregate all content ----
@@ -329,6 +358,8 @@ async def smart_extract(
     run_conf: "CrawlerRunConfig",
     instruction: str = "",
     screenshots: Optional[List[str]] = None,
+    apply_llm_noise_filter: bool = False,
+    stats: Optional[Dict[str, int]] = None,
 ) -> str:
     """Run LLM extraction on aggregated content with smart filtering.
 
@@ -336,7 +367,9 @@ async def smart_extract(
       1. Extract articles from content (chunked if too large)
       2. Deduplicate by title
       3. Heuristic noise filter (remove nav items, category labels, promos)
-      4. LLM second-pass filter (review remaining items for real news)
+      4. (Optional) LLM second-pass filter — OFF by default because it routinely
+         deletes legitimate headlines it misjudges as "noise", which dropped real
+         news. Enable only when precision matters more than recall.
     """
     from .extraction.llm_extraction import LLMExtractionStrategy
 
@@ -369,14 +402,9 @@ async def smart_extract(
         except Exception as e:
             print(f"[smart_extract] LLM extract ERROR: {e}")
             result = "[]"
-        try:
-            all_extracted = json.loads(result)
-            if not isinstance(all_extracted, list):
-                print(f"[smart_extract] Parsed result is {type(all_extracted).__name__}, not list")
-                all_extracted = []
-        except (json.JSONDecodeError, TypeError) as e:
-            print(f"[smart_extract] JSON parse error: {e}")
-            all_extracted = []
+        all_extracted = _parse_articles_lenient(result)
+        if not all_extracted:
+            print("[smart_extract] No articles parsed from result (empty or unrecoverable)")
     else:
         # Content too large — chunk and merge
         chunks = _chunk_content(all_content, chunk_size=content_limit)
@@ -392,15 +420,9 @@ async def smart_extract(
             except Exception as e:
                 print(f"[smart_extract]   Chunk {i+1} ERROR: {e}")
                 continue
-            try:
-                items = json.loads(extracted)
-                if isinstance(items, list):
-                    all_extracted.extend(items)
-                    print(f"[smart_extract]   Chunk {i+1}: {len(items)} items")
-                else:
-                    print(f"[smart_extract]   Chunk {i+1}: parsed as {type(items).__name__}, not list")
-            except (json.JSONDecodeError, TypeError) as e:
-                print(f"[smart_extract]   Chunk {i+1} JSON parse error: {e}")
+            items = _parse_articles_lenient(extracted)
+            all_extracted.extend(items)
+            print(f"[smart_extract]   Chunk {i+1}: {len(items)} items")
 
     if instruction:
         strategy.instruction = original_instruction
@@ -420,12 +442,21 @@ async def smart_extract(
 
     # ---- Step 3: Heuristic noise filter ----
     cleaned = _heuristic_filter(unique)
-    print(f"  After heuristic filter: {len(cleaned)} articles (removed {len(unique) - len(cleaned)} noise items)")
+    heuristic_kept = len(cleaned)
+    print(f"  After heuristic filter: {heuristic_kept} articles (removed {len(unique) - heuristic_kept} noise items)")
 
-    # ---- Step 4: LLM second-pass filter ----
-    if cleaned and isinstance(strategy, LLMExtractionStrategy):
+    # ---- Step 4: LLM second-pass filter (opt-in) ----
+    if apply_llm_noise_filter and cleaned and isinstance(strategy, LLMExtractionStrategy):
         cleaned = await _llm_noise_filter(cleaned, strategy)
         print(f"  After LLM noise filter: {len(cleaned)} articles")
+    elif not apply_llm_noise_filter:
+        print("  LLM noise filter disabled (recall-preserving default)")
+
+    if stats is not None:
+        stats["extracted"] = len(all_extracted)
+        stats["deduped"] = len(unique)
+        stats["heuristic_kept"] = heuristic_kept
+        stats["llm_kept"] = len(cleaned)
 
     return json.dumps(cleaned, indent=2, ensure_ascii=False)
 
@@ -474,21 +505,18 @@ def _heuristic_filter(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for article in articles:
         title = article.get("title", "").strip()
 
-        # Skip very short titles (likely nav items)
-        if len(title) < 8:
+        # Skip empty / very short titles (likely nav items). Relaxed from 8 to 5
+        # so short-but-real headlines are not dropped.
+        if len(title) < 5:
             continue
 
         # Skip if title matches a known noise pattern
         if any(pat.search(title) for pat in _NOISE_RE):
             continue
 
-        # Skip if title has no spaces (single word = likely a category)
-        if " " not in title:
-            continue
-
-        # Skip if summary is empty AND title looks like a section header
-        summary = article.get("summary", "").strip()
-        if not summary and len(title.split()) <= 3:
+        # Single-word titles are usually category labels — but only treat them as
+        # noise when they are also short, so we don't drop a real one-word headline.
+        if " " not in title and len(title) < 12:
             continue
 
         filtered.append(article)
@@ -551,6 +579,64 @@ async def _llm_noise_filter(
         strategy.schema = original_schema
 
     return articles  # Fallback: return unfiltered
+
+
+def _parse_articles_lenient(raw: str) -> List[Dict[str, Any]]:
+    """Parse an LLM JSON array of articles, salvaging as much as possible.
+
+    LLM output is frequently truncated mid-array (e.g. hitting max_tokens) or has
+    minor syntax issues. A strict ``json.loads`` returns nothing in that case, so
+    we would drop *every* article in the batch — a major source of "missing news".
+    Strategy: strict parse first; if that fails, recover every complete top-level
+    ``{...}`` object via brace/string-aware scanning (so a truncated tail only
+    loses the final, incomplete object instead of the whole batch).
+    """
+    if not raw or not raw.strip():
+        return []
+
+    # 1) Strict parse (handles the normal, well-formed case).
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [d for d in data if isinstance(d, dict)]
+        if isinstance(data, dict):
+            return [data]
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # 2) Salvage complete top-level objects, ignoring braces inside strings.
+    objects: List[Dict[str, Any]] = []
+    depth = 0
+    start: Optional[int] = None
+    in_str = False
+    esc = False
+    for i, ch in enumerate(raw):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start is not None:
+                    try:
+                        obj = json.loads(raw[start : i + 1])
+                        if isinstance(obj, dict):
+                            objects.append(obj)
+                    except json.JSONDecodeError:
+                        pass
+                    start = None
+    return objects
 
 
 def _chunk_content(text: str, chunk_size: int = 10000) -> List[str]:

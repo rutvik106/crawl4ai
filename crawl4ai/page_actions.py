@@ -3,9 +3,57 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Optional
 
 from playwright.async_api import Page
+
+
+# Relative-time phrases as rendered on listing pages ("2 hours ago", "3 days
+# ago", "yesterday", ...). Used to decide, while scrolling, whether we have
+# already scrolled past the recency window and can stop early.
+_REL_TIME_RE = re.compile(
+    r"\b(\d+)\s*(second|sec|minute|min|hour|hr|day|week|month|year)s?\s+ago\b"
+    r"|\b(just\s+now|moments?\s+ago|yesterday|today)\b",
+    re.IGNORECASE,
+)
+
+_UNIT_HOURS = {
+    "second": 1 / 3600, "sec": 1 / 3600,
+    "minute": 1 / 60, "min": 1 / 60,
+    "hour": 1.0, "hr": 1.0,
+    "day": 24.0, "week": 24 * 7, "month": 24 * 30, "year": 24 * 365,
+}
+
+
+def _phrase_age_hours(phrase: str) -> Optional[float]:
+    """Estimate the age in hours of a relative-time phrase, or None if unknown."""
+    p = phrase.lower().strip()
+    if re.search(r"just\s+now|moments?\s+ago|today", p):
+        return 0.0
+    if "yesterday" in p:
+        return 24.0
+    m = re.search(r"(\d+)\s*(second|sec|minute|min|hour|hr|day|week|month|year)s?\s+ago", p)
+    if not m:
+        return None
+    mult = _UNIT_HOURS.get(m.group(2))
+    return int(m.group(1)) * mult if mult else None
+
+
+async def page_oldest_age_hours(page: Page) -> Optional[float]:
+    """Best-effort age (in hours) of the OLDEST relative timestamp on the page.
+
+    Returns None when the page exposes no relative-time text. This is a cheap,
+    DOM-text-only heuristic used solely to decide when to stop scrolling — it is
+    deliberately conservative (a false None just means "keep scrolling").
+    """
+    try:
+        text = await page.evaluate("() => document.body.innerText")
+    except Exception:
+        return None
+    ages = [a for m in _REL_TIME_RE.finditer(text or "")
+            if (a := _phrase_age_hours(m.group(0))) is not None]
+    return max(ages) if ages else None
 
 
 async def scroll_to_bottom(
@@ -13,8 +61,16 @@ async def scroll_to_bottom(
     max_scrolls: int = 20,
     scroll_delay: float = 1.0,
     scroll_step: int = 800,
+    stop_when_older_than_hours: Optional[float] = None,
 ) -> int:
     """Scroll the page incrementally to trigger lazy-loaded content.
+
+    ``max_scrolls`` is a safety cap. Scrolling also stops early when the page
+    height stops growing (end of list). When ``stop_when_older_than_hours`` is
+    set, scrolling additionally stops once the oldest visible relative timestamp
+    is older than that window — so on a reverse-chronological listing we stop as
+    soon as we've scrolled past the recency boundary instead of always burning
+    the full ``max_scrolls``.
 
     Returns the total number of scrolls performed.
     """
@@ -35,6 +91,11 @@ async def scroll_to_bottom(
         else:
             stale_count = 0
         prev_height = cur_height
+
+        if stop_when_older_than_hours:
+            oldest = await page_oldest_age_hours(page)
+            if oldest is not None and oldest > stop_when_older_than_hours:
+                break  # scrolled past the recency window; deeper items are older
 
     return scrolls
 

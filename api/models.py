@@ -104,15 +104,17 @@ class ScheduleToggleRequest(BaseModel):
 class SettingsResponse(BaseModel):
     """Response model for settings."""
     groq_api_key: str = ""
-    llm_provider: str = "groq/llama-3.1-8b-instant"
+    anthropic_api_key: str = ""
+    llm_provider: str = "anthropic/claude-sonnet-4-5"
     default_max_scrolls: int = 10
-    default_max_inner_pages: int = 5
+    default_max_inner_pages: int = 20
     default_content_limit: int = 12000
 
 
 class SettingsUpdateRequest(BaseModel):
     """Request model for updating settings."""
     groq_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
     llm_provider: Optional[str] = None
     default_max_scrolls: Optional[int] = None
     default_max_inner_pages: Optional[int] = None

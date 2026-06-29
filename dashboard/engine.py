@@ -61,6 +61,36 @@ def _log(msg: str) -> None:
     print(msg, flush=True)
 
 
+# Default extraction model. Claude Sonnet has far higher recall than the old
+# Groq 8B model and reads publication dates reliably, which directly reduces
+# the "dropped / missing news" problem. Resolved via litellm.
+DEFAULT_LLM_PROVIDER = "anthropic/claude-sonnet-4-5"
+
+
+def _resolve_llm_key(provider: str, settings: Dict[str, str]) -> str:
+    """Pick the correct API key for a litellm provider string.
+
+    ``provider`` is a litellm model id such as ``anthropic/claude-sonnet-4-5``,
+    ``groq/llama-3.1-8b-instant`` or ``openai/gpt-4o``. Each provider needs its
+    own key, so we resolve by prefix: DB setting first, then environment var.
+    Previously the Groq key was hardcoded for every provider, which silently
+    broke any non-Groq model.
+    """
+    p = (provider or "").lower()
+
+    def _pick(setting_key: str, env_key: str) -> str:
+        return settings.get(setting_key, "") or os.getenv(env_key, "")
+
+    if p.startswith("anthropic/") or "claude" in p:
+        return _pick("anthropic_api_key", "ANTHROPIC_API_KEY")
+    if p.startswith("openai/") or p.startswith("gpt"):
+        return _pick("openai_api_key", "OPENAI_API_KEY")
+    if p.startswith("ollama"):
+        return ""  # local, no key needed
+    # Default / back-compat: Groq
+    return _pick("groq_api_key", "GROQ_API_KEY")
+
+
 def _queue_processor() -> None:
     """Background thread that processes jobs from the queue with limited concurrency."""
     semaphore = threading.Semaphore(MAX_CONCURRENT_JOBS)
@@ -210,7 +240,16 @@ async def _execute_job(job_id: str) -> None:
 
     # Load settings for API keys
     settings = db.get_all_settings()
-    groq_key = settings.get("groq_api_key", os.getenv("GROQ_API_KEY", ""))
+    # Resolve the extraction model + its API key (provider-aware). The model is
+    # configurable per-job, falling back to the saved default, then Claude Sonnet.
+    llm_provider = (
+        config.get("llm_provider")
+        or settings.get("llm_provider")
+        or DEFAULT_LLM_PROVIDER
+    )
+    llm_key = _resolve_llm_key(llm_provider, settings)
+    if not llm_key and not llm_provider.lower().startswith("ollama"):
+        _log(f"[engine] WARNING: no API key resolved for provider {llm_provider!r}")
 
     # Build output directory with absolute path to avoid relative path issues
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -288,16 +327,24 @@ async def _execute_job(job_id: str) -> None:
         "If an article has no visible publication date or time, include it only if it appears to be recent. "
         "Return a JSON array containing only articles from the last 24 hours."
     )
+    # Provider-aware sizing. Large-context models (Claude, OpenAI) can ingest far
+    # more content per call and emit much larger JSON arrays, so we widen both the
+    # input window (less lossy chunking) and the output cap (no truncated arrays —
+    # the #1 cause of whole batches of articles silently disappearing).
+    _large_ctx = llm_provider.lower().startswith(("anthropic/", "openai/")) or "claude" in llm_provider.lower()
+    content_limit = int(config.get("content_limit") or (100000 if _large_ctx else 12000))
+    max_output_tokens = int(config.get("max_output_tokens") or (16000 if _large_ctx else 4000))
+
     extraction = LLMExtractionStrategy(
         llm_config=LLMConfig(
-            provider=config.get("llm_provider", "groq/llama-3.1-8b-instant"),
-            api_token=groq_key,
+            provider=llm_provider,
+            api_token=llm_key,
         ),
         schema=schema_fields,
         extraction_type="schema",
         instruction=config.get("extraction_instruction") or default_instruction,
-        extra_args={"temperature": 0, "max_tokens": 4000},
-        content_length_limit=int(config.get("content_limit", 12000)),
+        extra_args={"temperature": 0, "max_tokens": max_output_tokens},
+        content_length_limit=content_limit,
     )
 
     run_conf = CrawlerRunConfig(
@@ -306,10 +353,17 @@ async def _execute_job(job_id: str) -> None:
     )
 
     # Deep crawl config
+    # Optional adaptive recency stop (hours). When set, the crawler stops
+    # scrolling/paginating once it has passed items older than this window,
+    # instead of always exhausting the fixed scroll/page caps.
+    _recency_raw = config.get("recency_stop_hours")
+    recency_stop_hours = float(_recency_raw) if _recency_raw not in (None, "", 0) else None
+
     deep_conf = DeepCrawlConfig(
         scroll=config.get("scroll", True),
         max_scrolls=int(config.get("max_scrolls", 10)),
         scroll_delay=float(config.get("scroll_delay", 1.0)),
+        recency_stop_hours=recency_stop_hours,
         click_load_more=config.get("click_load_more", True),
         # Numbered pagination (opt-in). Needed for listings that paginate rather
         # than infinitely scroll (e.g. PR Newswire, GlobeNewswire) so the full
@@ -320,11 +374,15 @@ async def _execute_job(job_id: str) -> None:
         follow_links=config.get("follow_links", True),
         link_selector=config.get("link_selector", "a[href]"),
         link_filter_pattern=config.get("link_filter", ""),
-        max_inner_pages=int(config.get("max_inner_pages", 5)),
-        use_screenshots=config.get("screenshots", True),
+        max_inner_pages=int(config.get("max_inner_pages", 20)),
+        # Screenshots are not consumed by any downstream step yet, so default OFF
+        # to avoid the extra time + Chromium crash risk for no benefit.
+        use_screenshots=config.get("screenshots", False),
         screenshot_dir=os.path.join(output_dir, "screenshots"),
         smart_filter=config.get("smart_filter", True),
     )
+    # The destructive LLM noise filter is opt-in (defaults OFF) to preserve recall.
+    apply_llm_noise_filter = bool(config.get("llm_noise_filter", False))
 
     try:
         _log(f"[engine] Job {job_id} step 1/5: launching browser...")
@@ -344,10 +402,17 @@ async def _execute_job(job_id: str) -> None:
 
             # Smart extraction with noise filtering
             _log(f"[engine] Job {job_id} step 4/5: smart_extract starting...")
+            extract_stats: Dict[str, int] = {}
             extracted = await smart_extract(
-                all_content, run_conf, deep_conf.filter_instruction
+                all_content,
+                run_conf,
+                deep_conf.filter_instruction,
+                apply_llm_noise_filter=apply_llm_noise_filter,
+                stats=extract_stats,
             )
             _log(f"[engine] Job {job_id} step 4/5: smart_extract done")
+
+        crawl_stats = deep_result.get("stats", {}) if isinstance(deep_result, dict) else {}
 
         # Parse and count articles
         from crawl4ai.output.email_output import EmailOutput as EO
@@ -368,10 +433,23 @@ async def _execute_job(job_id: str) -> None:
             extracted = json.dumps(articles)
 
         article_count = len(articles) if isinstance(articles, list) else 0
+
+        # ── Drop-funnel telemetry: shows exactly where articles are lost ──
+        _log(
+            f"[engine] Job {job_id} FUNNEL: "
+            f"raw_links={crawl_stats.get('raw_links_found', 0)} → "
+            f"article_links={crawl_stats.get('article_links_after_filter', 0)} → "
+            f"inner_pages={crawl_stats.get('inner_pages_crawled', 0)} → "
+            f"extracted={extract_stats.get('extracted', 0)} → "
+            f"deduped={extract_stats.get('deduped', 0)} → "
+            f"heuristic_kept={extract_stats.get('heuristic_kept', 0)} → "
+            f"llm_kept={extract_stats.get('llm_kept', 0)} → "
+            f"within_24h={article_count}"
+        )
         _log(f"[engine] Job {job_id} step 5/5: saving {article_count} articles to outputs...")
 
         # Generate AI summary if requested and articles are available
-        if config.get("summarize_with_ai") and article_count > 0 and groq_key:
+        if config.get("summarize_with_ai") and article_count > 0 and llm_key:
             try:
                 import litellm
                 article_lines = []
@@ -386,8 +464,8 @@ async def _execute_job(job_id: str) -> None:
                     f"executive summary covering the main themes and key topics:\n\n{articles_text}"
                 )
                 summary_response = await litellm.acompletion(
-                    model=config.get("llm_provider", "groq/llama-3.1-8b-instant"),
-                    api_key=groq_key,
+                    model=llm_provider,
+                    api_key=llm_key,
                     messages=[
                         {"role": "system", "content": "You are a news analyst. Write clear, concise executive summaries."},
                         {"role": "user", "content": summary_prompt},
