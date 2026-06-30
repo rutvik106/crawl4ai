@@ -234,13 +234,25 @@ async def deep_crawl(
         base_domain = base_parsed.netloc
         base_path = base_parsed.path.rstrip("/")
 
-        # Common non-article path patterns to skip
+        # Common non-article path patterns to skip. Expanded to exclude the
+        # marketing / account / category-landing pages that newswire sites put in
+        # their header/footer (these were being followed instead of real releases,
+        # bloating content and burning LLM budget on junk).
         _SKIP_PATTERNS = re.compile(
-            r"^/(#|$)|/pre-markets|/markets|/login|/signup|/subscribe|/newsletter"
-            r"|/video|/podcast|/about|/contact|/privacy|/terms|/sitemap"
-            r"|/author|/tag/|/category/|/search",
+            r"^/(#|$)|/pre-markets|/markets|/login|/signup|/sign-?in|/register"
+            r"|/subscribe|/newsletter|/video|/podcast|/about|/contact|/privacy"
+            r"|/terms|/sitemap|/author|/tag/|/category/|/search|/account"
+            r"|/resources?|/products?|/services?|/solutions?|/pricing|/advertis"
+            r"|/amplify|/distribution|/multimedia|/all-products|latest-news-topics"
+            r"|-latest-news|/help|/careers|/support",
             re.IGNORECASE,
         )
+
+        # Positive signal that a URL is an actual article/press release rather
+        # than a section/landing page: ends in .html, has a dated path, or has a
+        # long numeric id. Used as a *preference* (with fallback) so it helps
+        # newswire-style sites without breaking sites that don't use these forms.
+        _ARTICLE_HINT_RE = re.compile(r"\.html?($|\?)|/20\d\d/\d|/\d{6,}", re.IGNORECASE)
 
         def _is_article_link(link: dict) -> bool:
             parsed = urlparse(link["url"])
@@ -268,8 +280,13 @@ async def deep_crawl(
             return True
 
         result["stats"]["raw_links_found"] = len(raw_links)
-        article_links = [l for l in article_links if _is_article_link(l)]
-        article_links = article_links[:deep_config.max_inner_pages]
+        filtered_links = [l for l in article_links if _is_article_link(l)]
+        # Prefer article-shaped URLs when any exist; otherwise fall back to the
+        # generic filtered set so non-standard sites still work.
+        hinted = [l for l in filtered_links
+                  if _ARTICLE_HINT_RE.search(urlparse(l["url"]).path)]
+        chosen = hinted if hinted else filtered_links
+        article_links = chosen[:deep_config.max_inner_pages]
         result["article_links"] = article_links
         result["stats"]["article_links_after_filter"] = len(article_links)
         print(f"  Found {len(article_links)} article links to follow "

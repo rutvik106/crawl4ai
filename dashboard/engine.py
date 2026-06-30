@@ -327,13 +327,15 @@ async def _execute_job(job_id: str) -> None:
         "If an article has no visible publication date or time, include it only if it appears to be recent. "
         "Return a JSON array containing only articles from the last 24 hours."
     )
-    # Provider-aware sizing. Large-context models (Claude, OpenAI) can ingest far
-    # more content per call and emit much larger JSON arrays, so we widen both the
-    # input window (less lossy chunking) and the output cap (no truncated arrays —
-    # the #1 cause of whole batches of articles silently disappearing).
+    # Per-call sizing. NOTE: bigger is NOT better here. Sending ~100k-char chunks
+    # and requesting ~16k output tokens makes each Claude call slow enough to hit
+    # the request timeout — which both wastes money (timed-out calls are still
+    # billed) and drops articles. We use moderate chunks that each complete well
+    # within the timeout; the lenient parser still salvages any truncated tail.
     _large_ctx = llm_provider.lower().startswith(("anthropic/", "openai/")) or "claude" in llm_provider.lower()
-    content_limit = int(config.get("content_limit") or (100000 if _large_ctx else 12000))
-    max_output_tokens = int(config.get("max_output_tokens") or (16000 if _large_ctx else 4000))
+    content_limit = int(config.get("content_limit") or (40000 if _large_ctx else 12000))
+    max_output_tokens = int(config.get("max_output_tokens") or (8000 if _large_ctx else 4000))
+    llm_timeout = int(config.get("llm_timeout") or 180)
 
     extraction = LLMExtractionStrategy(
         llm_config=LLMConfig(
@@ -343,7 +345,7 @@ async def _execute_job(job_id: str) -> None:
         schema=schema_fields,
         extraction_type="schema",
         instruction=config.get("extraction_instruction") or default_instruction,
-        extra_args={"temperature": 0, "max_tokens": max_output_tokens},
+        extra_args={"temperature": 0, "max_tokens": max_output_tokens, "timeout": llm_timeout},
         content_length_limit=content_limit,
     )
 
