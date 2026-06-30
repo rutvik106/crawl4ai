@@ -293,11 +293,24 @@ class AsyncWebCrawler:
 
         try:
             if not run_conf.js_only:
-                await page.goto(
-                    url,
-                    timeout=run_conf.page_timeout,
-                    wait_until="domcontentloaded",
-                )
+                # Retry navigation once on transient failures (protocol errors,
+                # connection resets, occasional anti-bot first-hit rejections).
+                last_exc: Optional[Exception] = None
+                for attempt in range(2):
+                    try:
+                        await page.goto(
+                            url,
+                            timeout=run_conf.page_timeout,
+                            wait_until="domcontentloaded",
+                        )
+                        last_exc = None
+                        break
+                    except Exception as nav_exc:  # noqa: BLE001 - retry then re-raise
+                        last_exc = nav_exc
+                        if attempt == 0:
+                            await asyncio.sleep(2)
+                if last_exc is not None:
+                    raise last_exc
 
             # Inject local storage after first navigation
             local_storage = getattr(page, "_crawl4ai_local_storage", None)

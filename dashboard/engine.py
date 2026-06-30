@@ -282,12 +282,23 @@ async def _execute_job(job_id: str) -> None:
     print(f"[engine] Job {job_id}: backends={backend_names}")
     print(f"[engine]   recipients={recipients!r}")
 
-    # Browser config
+    # Browser config.
+    # --disable-http2: some sites (e.g. businesswire.com) terminate Playwright's
+    #   HTTP/2 connection with ERR_HTTP2_PROTOCOL_ERROR; forcing HTTP/1.1 fixes it.
+    # --disable-blink-features=AutomationControlled: reduces trivial bot detection.
+    # --no-sandbox / --disable-dev-shm-usage: stability in containers (Railway).
+    browser_args = [
+        "--disable-http2",
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+    ]
     browser_conf = BrowserConfig(
         headless=True,
         stealth_mode=config.get("stealth", True),
         simulate_human=config.get("simulate_human", True),
         block_images=config.get("block_images", True),
+        extra_args=browser_args,
     )
 
     # Current IST time and the rolling 24h window — used in the extraction
