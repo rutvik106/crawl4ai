@@ -48,7 +48,28 @@ def render():
 
     st.divider()
 
-    st.subheader("🕷️ Crawl Defaults")
+    st.subheader("�️ Unblocker Proxy")
+    st.caption("BrightData Web Unlocker (or any authenticated proxy). Used for jobs "
+               "with 'Use unblocker proxy' enabled, for sites that block direct access.")
+    proxy_server = st.text_input(
+        "Proxy Server",
+        value=settings.get("proxy_server", os.getenv("PROXY_SERVER", "")),
+        placeholder="http://brd.superproxy.io:33335",
+    )
+    pcol1, pcol2 = st.columns(2)
+    proxy_username = pcol1.text_input(
+        "Proxy Username",
+        value=settings.get("proxy_username", os.getenv("PROXY_USERNAME", "")),
+    )
+    proxy_password = pcol2.text_input(
+        "Proxy Password",
+        value=settings.get("proxy_password", os.getenv("PROXY_PASSWORD", "")),
+        type="password",
+    )
+
+    st.divider()
+
+    st.subheader("�🕷️ Crawl Defaults")
 
     col1, col2 = st.columns(2)
     default_max_scrolls = col1.number_input(
@@ -77,6 +98,9 @@ def render():
         db.set_setting("groq_api_key", groq_key)
         db.set_setting("anthropic_api_key", anthropic_key)
         db.set_setting("llm_provider", llm_provider)
+        db.set_setting("proxy_server", proxy_server)
+        db.set_setting("proxy_username", proxy_username)
+        db.set_setting("proxy_password", proxy_password)
         db.set_setting("default_max_scrolls", str(default_max_scrolls))
         db.set_setting("default_max_inner_pages", str(default_max_inner))
         db.set_setting("default_content_limit", str(default_content_limit))

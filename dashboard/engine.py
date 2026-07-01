@@ -91,6 +91,33 @@ def _resolve_llm_key(provider: str, settings: Dict[str, str]) -> str:
     return _pick("groq_api_key", "GROQ_API_KEY")
 
 
+def _resolve_proxy(settings: Dict[str, str]) -> Optional[Dict[str, str]]:
+    """Build a Playwright proxy config from stored credentials, or None.
+
+    Used for BrightData Web Unlocker (an authenticated proxy endpoint that
+    transparently solves anti-bot challenges, e.g. for businesswire.com). The
+    returned dict is passed straight to Playwright's launch ``proxy`` option.
+    Reads DB settings first, then PROXY_* env vars.
+    """
+    def _pick(setting_key: str, env_key: str) -> str:
+        return (settings.get(setting_key, "") or os.getenv(env_key, "")).strip()
+
+    server = _pick("proxy_server", "PROXY_SERVER")
+    if not server:
+        return None
+    # Normalise to a URL Playwright accepts (defaults to http:// if no scheme).
+    if "://" not in server:
+        server = "http://" + server
+    proxy: Dict[str, str] = {"server": server}
+    username = _pick("proxy_username", "PROXY_USERNAME")
+    password = _pick("proxy_password", "PROXY_PASSWORD")
+    if username:
+        proxy["username"] = username
+    if password:
+        proxy["password"] = password
+    return proxy
+
+
 def _queue_processor() -> None:
     """Background thread that processes jobs from the queue with limited concurrency."""
     semaphore = threading.Semaphore(MAX_CONCURRENT_JOBS)
@@ -293,12 +320,26 @@ async def _execute_job(job_id: str) -> None:
         "--no-sandbox",
         "--disable-dev-shm-usage",
     ]
+    # Optional per-job unblocker proxy (BrightData Web Unlocker). Off by default
+    # since it is billed per request; enable on jobs whose sites block direct
+    # headless access (e.g. businesswire.com).
+    proxy_config = None
+    if config.get("use_proxy"):
+        proxy_config = _resolve_proxy(settings)
+        if proxy_config:
+            _log(f"[engine] Job {job_id}: routing through unblocker proxy "
+                 f"({proxy_config.get('server')})")
+        else:
+            _log(f"[engine] Job {job_id}: use_proxy set but no proxy credentials "
+                 f"configured — proceeding without proxy")
+
     browser_conf = BrowserConfig(
         headless=True,
         stealth_mode=config.get("stealth", True),
         simulate_human=config.get("simulate_human", True),
         block_images=config.get("block_images", True),
         extra_args=browser_args,
+        proxy_config=proxy_config,
     )
 
     # Current IST time and the rolling 24h window — used in the extraction

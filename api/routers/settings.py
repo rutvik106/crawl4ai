@@ -31,6 +31,9 @@ def _get_settings_from_db() -> SettingsResponse:
         groq_api_key=settings.get("groq_api_key", os.getenv("GROQ_API_KEY", "")),
         anthropic_api_key=settings.get("anthropic_api_key", os.getenv("ANTHROPIC_API_KEY", "")),
         llm_provider=settings.get("llm_provider", "anthropic/claude-sonnet-4-5"),
+        proxy_server=settings.get("proxy_server", os.getenv("PROXY_SERVER", "")),
+        proxy_username=settings.get("proxy_username", os.getenv("PROXY_USERNAME", "")),
+        proxy_password=settings.get("proxy_password", os.getenv("PROXY_PASSWORD", "")),
         default_max_scrolls=int(settings.get("default_max_scrolls", "10")),
         default_max_inner_pages=int(settings.get("default_max_inner_pages", "20")),
         default_content_limit=int(settings.get("default_content_limit", "12000")),
@@ -52,6 +55,12 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
         db.set_setting("anthropic_api_key", request.anthropic_api_key)
     if request.llm_provider is not None:
         db.set_setting("llm_provider", request.llm_provider)
+    if request.proxy_server is not None:
+        db.set_setting("proxy_server", request.proxy_server)
+    if request.proxy_username is not None:
+        db.set_setting("proxy_username", request.proxy_username)
+    if request.proxy_password is not None:
+        db.set_setting("proxy_password", request.proxy_password)
     if request.default_max_scrolls is not None:
         db.set_setting("default_max_scrolls", str(request.default_max_scrolls))
     if request.default_max_inner_pages is not None:

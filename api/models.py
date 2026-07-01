@@ -106,6 +106,9 @@ class SettingsResponse(BaseModel):
     groq_api_key: str = ""
     anthropic_api_key: str = ""
     llm_provider: str = "anthropic/claude-sonnet-4-5"
+    proxy_server: str = ""
+    proxy_username: str = ""
+    proxy_password: str = ""
     default_max_scrolls: int = 10
     default_max_inner_pages: int = 20
     default_content_limit: int = 12000
@@ -116,6 +119,9 @@ class SettingsUpdateRequest(BaseModel):
     groq_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     llm_provider: Optional[str] = None
+    proxy_server: Optional[str] = None
+    proxy_username: Optional[str] = None
+    proxy_password: Optional[str] = None
     default_max_scrolls: Optional[int] = None
     default_max_inner_pages: Optional[int] = None
     default_content_limit: Optional[int] = None
