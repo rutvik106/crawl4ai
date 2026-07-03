@@ -14,6 +14,9 @@ import pytest
 
 from crawl4ai.pharma_intelligence import PharmaArticle, PharmaPipeline
 from crawl4ai.pharma_intelligence.formatter import PharmaEmailFormatter
+from crawl4ai.pharma_intelligence.classifier import ArticleClassifier
+from crawl4ai.pharma_intelligence.extraction import EntityExtractor
+from crawl4ai.pharma_intelligence.scorer import RelevanceScorer
 from crawl4ai.pharma_intelligence.summarizer import LeadershipSummarizer
 
 
@@ -193,6 +196,138 @@ def test_llm_summary_parses_key_points():
     ]
 
 
+def test_summary_exposes_grounded_daily_bites_components():
+    summarizer = LeadershipSummarizer(llm_client=None)
+    out = summarizer.summarize(
+        HIGH_VALUE_ARTICLE.title,
+        HIGH_VALUE_ARTICLE.text,
+        {
+            "event_type": "approval",
+            "regulatory_status": "final_approval",
+            "regulatory_body": "FDA",
+            "geography": "United States",
+            "trial_phase": "Phase III",
+        },
+    )
+    assert out["event_update"]
+    assert "$2.8 million" in (out["evidence"] or "")
+    assert "Final approval" in (out["regulatory_status"] or "")
+    assert out["clinical_stage"] == "Clinical stage: Phase III."
+    assert "commercial_implications" in out
+
+
+# ── 3. Contextual Key vs Other prioritization ─────────────────────────────────
+
+def test_priority_review_is_not_mislabeled_as_final_fda_approval():
+    title = "FDA grants Priority Review to Venglustat for Gaucher disease"
+    text = (
+        "Sanofi's Venglustat received FDA Priority Review after a Phase III study. "
+        "If approved, it would be the first US therapy for neurological symptoms."
+    )
+    entities = EntityExtractor().extract(title, text)
+    classified = ArticleClassifier().classify(title, text, entities)
+
+    assert entities["regulatory_status"] == "priority_review"
+    assert "Priority Review" in classified["categories"]
+    assert "FDA Approval" not in classified["categories"]
+
+
+def test_priority_review_defaults_to_other_without_india_relevance():
+    title = "FDA grants Priority Review to Venglustat for Gaucher disease"
+    text = (
+        "Sanofi's Venglustat received FDA Priority Review after the Phase III "
+        "LEAP2MONO study showed positive efficacy. If approved, it would be the "
+        "first US therapy for neurological symptoms of this rare disease."
+    )
+    entities = EntityExtractor().extract(title, text)
+    categories = ArticleClassifier().classify(title, text, entities)["categories"]
+    result = RelevanceScorer().score(title, categories, entities, entities["event_type"], text)
+    assert result["is_key_highlight"] is False
+
+
+def test_exceptional_indian_priority_review_can_be_key():
+    title = "Zydus saroglitazar NDA granted FDA Priority Review for PBC"
+    text = (
+        "Zydus Therapeutics received FDA Priority Review for saroglitazar in primary "
+        "biliary cholangitis. The Phase IIb/III EPICS-III trial showed a 56.7% versus "
+        "9.8% biochemical response. The therapy also holds Orphan Drug and Fast Track "
+        "designations for this rare autoimmune liver disease."
+    )
+    entities = EntityExtractor().extract(title, text)
+    categories = ArticleClassifier().classify(title, text, entities)["categories"]
+    result = RelevanceScorer().score(title, categories, entities, entities["event_type"], text)
+    assert result["is_key_highlight"] is True
+    assert result["score_rationale"]
+
+    pipeline_item = PharmaPipeline(llm_client=None).process([
+        PharmaArticle(title=title, text=text, source="Zydus")
+    ])[0]
+    assert pipeline_item.demoted is False
+    assert pipeline_item.is_key_highlight is True
+
+
+def test_routine_generic_fda_approval_remains_other_news():
+    title = "Alembic receives FDA final approval for generic oseltamivir"
+    text = (
+        "Alembic Pharmaceuticals received US FDA final approval for generic "
+        "oseltamivir oral suspension for influenza treatment."
+    )
+    entities = EntityExtractor().extract(title, text)
+    categories = ArticleClassifier().classify(title, text, entities)["categories"]
+    result = RelevanceScorer().score(title, categories, entities, entities["event_type"], text)
+    assert entities["regulatory_status"] == "final_approval"
+    assert result["is_key_highlight"] is False
+
+
+def test_early_stage_large_licensing_deal_remains_other_news():
+    title = "Pfizer and Innovent sign $10.5 billion oncology licensing deal"
+    text = (
+        "The companies signed a global licensing deal worth up to $10.5 billion "
+        "covering 12 early-stage cancer therapies. Innovent will lead early development."
+    )
+    entities = EntityExtractor().extract(title, text)
+    categories = ArticleClassifier().classify(title, text, entities)["categories"]
+    result = RelevanceScorer().score(title, categories, entities, entities["event_type"], text)
+    assert result["is_key_highlight"] is False
+
+
+def test_meaningful_india_population_expansion_is_key():
+    article = PharmaArticle(
+        title="Wegovy semaglutide approved for adolescents in India",
+        text=(
+            "Novo Nordisk's Wegovy semaglutide was approved in India for adolescents "
+            "aged 12 years and older with obesity, expanding the indication beyond adults. "
+            "The launch opens a new patient population in India's obesity market."
+        ),
+    )
+    item = PharmaPipeline(llm_client=None).process([article])[0]
+    assert item.is_key_highlight is True
+
+
+def test_material_indian_market_shift_can_be_key_without_regulatory_event():
+    article = PharmaArticle(
+        title="India GLP-1 market momentum slows amid price war",
+        text=(
+            "India's GLP-1 market momentum slows because of a price war, weak retention, "
+            "and prescription plateauing. Companies cut sales targets by 25-30% and hold "
+            "more than ₹100 crore of inventory."
+        ),
+    )
+    item = PharmaPipeline(llm_client=None).process([article])[0]
+    assert item.is_key_highlight is True
+
+
+def test_phase_iib_iii_analysis_is_a_trial_outcome_not_historical_approval():
+    title = "Olezarsen Phase IIb/III analysis shows pancreatitis reduction"
+    text = (
+        "The Phase IIb/III analysis showed an 85% reduction in acute pancreatitis "
+        "and a 66% triglyceride reduction. Olezarsen was previously approved for FCS."
+    )
+    entities = EntityExtractor().extract(title, text)
+    assert entities["event_type"] == "clinical_outcome"
+    assert entities["regulatory_status"] == "trial_outcome"
+
+
 # ── 3. Formatter surfaces the new fields ──────────────────────────────────────────
 
 def test_formatter_renders_key_points():
@@ -204,6 +339,9 @@ def test_formatter_renders_key_points():
     json_summary = formatter.format_json_summary(items)
     all_rendered = json_summary["key_highlights"] + json_summary["other_news"]
     assert "key_points" in all_rendered[0]
+    assert all_rendered[0]["particular"]
+    assert "regulatory_status" in all_rendered[0]
+    assert "classification_confidence" in all_rendered[0]
 
     html = formatter.format_report(items)
     assert "<html" in html.lower()

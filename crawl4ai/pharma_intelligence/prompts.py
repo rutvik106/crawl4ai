@@ -30,6 +30,7 @@ Return a JSON object with EXACTLY these fields (use null if not found/applicable
   "geography": "country or region where the event occurred",
   "regulatory_body": "FDA / EMA / CDSCO / NMPA / MHRA / other / null",
   "event_type": "one of: approval | clinical_outcome | ma | licensing | discontinuation | label_expansion | designation | generic_launch | manufacturing | patent | conference | preclinical | other",
+  "regulatory_status": "one of: final_approval | label_expansion | positive_recommendation | priority_review | filing_acceptance | designation | launch | exclusivity | withdrawal | trial_outcome | not_applicable",
   "deal_value": "deal value in USD millions if stated, else null"
 }}"""
 
@@ -44,6 +45,7 @@ Extracted Entities: {entities}
 
 Category list:
 REGULATORY: FDA Approval | EMA Approval | CDSCO Approval | NMPA Approval | MHRA Approval | Other Regulatory Approval
+REGULATORY MILESTONES: Priority Review | Regulatory Filing | Positive Regulatory Recommendation | Market Withdrawal
 CLINICAL: Phase III Success | Phase III Failure | Clinical Trial
 BUSINESS: M&A Activity | Licensing Deal | Manufacturing | Pipeline Update | Discontinuation
 DESIGNATIONS: Fast Track Designation | Breakthrough Therapy | Orphan Drug Designation
@@ -72,7 +74,7 @@ EXCLUDE if primarily about:
 - Conference presentations, poster abstracts
 - Preclinical, in vitro, or animal study data
 - Filing acceptance for review (not the decision itself)
-- Priority review designation (not the final approval)
+- Routine filing acceptance without additional strategic evidence
 - Early discovery or research stage news
 - Hospital operations news unrelated to specific drugs
 - Patent filings (not expiry events)
@@ -85,6 +87,7 @@ INCLUDE if primarily about:
 - First generic or biosimilar launches
 - Patent expiry / market exclusivity events
 - Label expansions or new indications
+- Priority Review backed by strong late-stage evidence and exceptional strategic relevance
 
 Return JSON:
 {{
@@ -95,39 +98,58 @@ Return JSON:
 
 
 RELEVANCE_PROMPT = """\
-Score the strategic relevance of this pharma article for a leadership team 
-at a mid-to-large pharma company focused on Indian and global markets.
+Assess whether this article belongs in "Key Highlights" or "Other News" for a
+Daily Bites brief read by pharma leadership. High recall is handled elsewhere:
+every valid article is retained, so this task is prioritization, not exclusion.
 
 Article Title: {title}
+Article Text (excerpt): {text}
 Categories: {categories}
 Extracted Entities: {entities}
 Event Type: {event_type}
 
-Scoring rubric:
-- Business impact magnitude  (0-30 pts): Major approval/M&A=28-30 | Phase III outcome=20-25 | designation=12-18 | minor update=1-5
-- Therapy area importance     (0-20 pts): Oncology/GLP-1/Gene Therapy/Rare Disease=18-20 | Cardio/Neuro/Immuno=12-16 | others=4-10
-- Indian market relevance     (0-20 pts): Direct India CDSCO/Indian company action=18-20 | affects Indian generics=12-16 | global only=2-6
-- Novelty / first-in-class    (0-15 pts): First-ever in class=13-15 | new indication=8-12 | line extension=3-6
-- Regulatory significance     (0-15 pts): Final approval=13-15 | designation=7-10 | clinical outcome=5-8 | no regulatory=0-3
+Evaluate five dimensions (total 0-100):
+- Event maturity (0-30): final approval, meaningful label expansion, pivotal
+  outcome, completed strategic transaction, or withdrawal outranks filing,
+  Priority Review, designation, formulation update, and early research.
+- Clinical/evidence strength (0-20): pivotal endpoints and quantified outcomes
+  outrank unquantified or early-stage evidence.
+- Strategic significance (0-20): first/only therapy, standard-of-care potential,
+  major unmet need, material competitive disruption, or portfolio transformation.
+- Commercial implications (0-15): credible market expansion, revenue exposure,
+  exclusivity, pricing/patent impact, or mature assets. Deal headline value alone
+  is not sufficient, especially for preclinical/early-stage programs.
+- India/Torrent relevance (0-15): direct Indian market impact, Torrent relevance,
+  or a material Indian-company action. Indian involvement alone is not sufficient.
+
+Decision guardrails:
+- Routine generic/tentative approvals normally belong in Other News unless they
+  are first-generic, exclusive, or commercially/competitively material.
+- Priority Review, filing acceptance, and designations normally belong in Other
+  News unless several strong amplifiers make the event strategically exceptional.
+- Do not call a review milestone a final approval.
+- Do not promote every FDA/EMA event, Indian-company item, M&A, or licensing deal.
+- A Key Highlight should normally score at least 60 and have a concrete rationale.
 
 Return JSON:
 {{
   "total_score": 74,
   "breakdown": {{
-    "business_impact": 22,
-    "therapy_importance": 18,
-    "indian_market": 10,
-    "novelty": 12,
-    "regulatory": 12
+    "event_maturity": 26,
+    "evidence_strength": 14,
+    "strategic_significance": 16,
+    "commercial_implications": 10,
+    "india_torrent_relevance": 8
   }},
-  "score_rationale": "one sentence explaining the score"
+  "is_key_highlight": true,
+  "score_rationale": "one sentence naming the event maturity and the strongest strategic reason",
+  "classification_confidence": 0.86
 }}"""
 
 
 SUMMARIZATION_PROMPT = """\
-Write a leadership-ready intelligence brief for this pharma event. The reader is a
-pharma executive who wants the substance of the story, not a one-line headline.
-Capture the "zest" of the news: what happened, the hard numbers, and why it matters.
+Write a concise Daily Bites-style intelligence brief for this pharma event. The
+reader wants the substance of the story, not a generic headline or padded analysis.
 
 Article Title: {title}
 Article Text: {text}
@@ -137,11 +159,14 @@ Indication: {indication}
 Event Type: {event_type}
 
 Requirements:
-- Write 4-6 sentences of substantive, analytical detail (NOT a single vague line).
-- Lead with the most impactful fact (the actual outcome/decision), then add context.
-- Always include: what happened, the molecule/company, the specific numbers
-  (endpoints, %, p-values, deal values, sales figures, patient counts) and the
-  strategic significance for the company and the market.
+- Write one compact paragraph of 3-5 substantive sentences.
+- Follow this sequence where the source supports it: event/update; quantified
+  evidence; exact regulatory status or clinical stage; strategic/commercial impact.
+- Never invent a field. Use null when the source does not support it.
+- Lead with the actual outcome/decision and clearly distinguish final approval from
+  filing acceptance, Priority Review, recommendation, designation, or launch.
+- Include concrete endpoints, percentages, deal values, sales, or patient counts
+  when present in the source.
 - Use precise, active voice. AVOID filler like "In a significant development",
   "It is worth noting", "notably".
 - If Phase III/pivotal: state whether the primary endpoint was met, the key efficacy
@@ -151,18 +176,21 @@ Requirements:
   and EMA"); note competitive/first-in-class status if known.
 - If M&A/licensing: state acquirer, target, deal value, the assets/portfolio gained,
   and the strategic rationale.
-- Then provide 2-4 sharp analytical bullet points ("key_points") that a leadership
-  team would care about (e.g. market size, cross-geography approval status, generic
-  erosion risk, competitive implication, next catalyst/timeline).
+- Keep implications grounded in the article; do not turn assumptions into facts.
 
 Return JSON:
 {{
-  "summary": "4-6 sentence analytical brief with concrete numbers and significance.",
+  "summary": "compact 3-5 sentence analytical brief",
   "headline": "8-12 word factual headline",
   "key_metric": "single most important number/stat if present, else null",
+  "event_update": "what happened, including molecule/company, or null",
+  "evidence": "key quantified clinical/business evidence, or null",
+  "regulatory_status": "exact status and geography, or null",
+  "clinical_stage": "trial/development stage and next catalyst, or null",
+  "strategic_significance": "grounded competitive or treatment significance, or null",
+  "commercial_implications": "grounded market, launch, exclusivity, pricing, sales, or deal implication, or null",
   "key_points": [
-    "Sharp analytical insight 1 (numbers/strategic implication)",
-    "Sharp analytical insight 2 (e.g. approval status in other geographies)"
+    "optional grounded analytical insight retained for API compatibility"
   ]
 }}"""
 

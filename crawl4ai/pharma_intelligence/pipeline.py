@@ -46,6 +46,7 @@ class PharmaIntelligenceResult:
     relevance_score: int = 0
     score_breakdown: Dict[str, Any] = field(default_factory=dict)
     score_rationale: str = ""
+    classification_confidence: float = 0.0
     is_key_highlight: bool = False
     # Demotion (never-drop policy): low-value / filtered items are kept but pushed
     # into "Other News" rather than discarded, so coverage is never silently lost.
@@ -55,6 +56,12 @@ class PharmaIntelligenceResult:
     headline: str = ""
     key_metric: Optional[str] = None
     key_points: List[str] = field(default_factory=list)
+    event_update: Optional[str] = None
+    evidence: Optional[str] = None
+    regulatory_status: Optional[str] = None
+    clinical_stage: Optional[str] = None
+    strategic_significance: Optional[str] = None
+    commercial_implications: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -73,6 +80,7 @@ class PharmaIntelligenceResult:
             "relevance_score": self.relevance_score,
             "score_breakdown": self.score_breakdown,
             "score_rationale": self.score_rationale,
+            "classification_confidence": self.classification_confidence,
             "is_key_highlight": self.is_key_highlight,
             "demoted": self.demoted,
             "demotion_reason": self.demotion_reason,
@@ -80,6 +88,12 @@ class PharmaIntelligenceResult:
             "headline": self.headline,
             "key_metric": self.key_metric,
             "key_points": self.key_points,
+            "event_update": self.event_update,
+            "evidence": self.evidence,
+            "regulatory_status": self.regulatory_status,
+            "clinical_stage": self.clinical_stage,
+            "strategic_significance": self.strategic_significance,
+            "commercial_implications": self.commercial_implications,
         }
 
 
@@ -157,10 +171,13 @@ class PharmaPipeline:
             logger.warning("Filter failed for '%s': %s", article.title, e)
         # Scoring always runs (even for filtered items) so "Other News" stays ranked.
         try:
-            score_result = self.scorer.score(article.title, result.categories, result.entities, event_type)
+            score_result = self.scorer.score(
+                article.title, result.categories, result.entities, event_type, text=text
+            )
             result.relevance_score = score_result["total_score"]
             result.score_breakdown = score_result.get("breakdown", {})
             result.score_rationale = score_result.get("score_rationale", "")
+            result.classification_confidence = score_result.get("classification_confidence", 0.0)
             result.is_key_highlight = score_result["is_key_highlight"]
         except Exception as e:
             logger.warning("Scoring failed for '%s': %s", article.title, e)
@@ -193,6 +210,12 @@ class PharmaPipeline:
             result.headline = summ["headline"]
             result.key_metric = summ["key_metric"]
             result.key_points = summ.get("key_points", []) or []
+            result.event_update = summ.get("event_update")
+            result.evidence = summ.get("evidence")
+            result.regulatory_status = summ.get("regulatory_status")
+            result.clinical_stage = summ.get("clinical_stage")
+            result.strategic_significance = summ.get("strategic_significance")
+            result.commercial_implications = summ.get("commercial_implications")
         except Exception as e:
             logger.warning("Summarization failed: %s", e)
             result.summary = item_dict.get("summary", item_dict.get("title", ""))

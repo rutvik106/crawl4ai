@@ -31,6 +31,7 @@ class ArticleClassifier:
             data = _parse_json(response)
             valid_cats = set(ALL_CATEGORIES)
             cats = [c for c in data.get("categories", []) if c in valid_cats]
+            cats = self._sanitize_regulatory_categories(cats, entities)
             if not cats:
                 cats = self._classify_with_rules(title, text, entities)["categories"]
             return {
@@ -47,7 +48,17 @@ class ArticleClassifier:
         for category, pattern in self._category_patterns:
             if pattern.search(combined):
                 categories.append(category)
-        if entities.get("regulatory_body"):
+        regulatory_status = entities.get("regulatory_status")
+        categories = self._sanitize_regulatory_categories(categories, entities)
+        if regulatory_status == "priority_review" and "Priority Review" not in categories:
+            categories.insert(0, "Priority Review")
+        elif regulatory_status == "filing_acceptance" and "Regulatory Filing" not in categories:
+            categories.insert(0, "Regulatory Filing")
+        elif regulatory_status == "positive_recommendation" and "Positive Regulatory Recommendation" not in categories:
+            categories.insert(0, "Positive Regulatory Recommendation")
+        elif regulatory_status == "withdrawal" and "Market Withdrawal" not in categories:
+            categories.insert(0, "Market Withdrawal")
+        if entities.get("regulatory_body") and regulatory_status in {"final_approval", "label_expansion"}:
             rb = entities["regulatory_body"].upper()
             mapping = {
                 "FDA": "FDA Approval", "EMA": "EMA Approval",
@@ -73,15 +84,30 @@ class ArticleClassifier:
         }
 
     @staticmethod
+    def _sanitize_regulatory_categories(categories: List[str], entities: Dict) -> List[str]:
+        status = entities.get("regulatory_status")
+        if status in {"priority_review", "filing_acceptance", "positive_recommendation", "designation"}:
+            approval_categories = {
+                "FDA Approval", "EMA Approval", "CDSCO Approval", "NMPA Approval",
+                "MHRA Approval", "Other Regulatory Approval",
+            }
+            return [c for c in categories if c not in approval_categories]
+        return categories
+
+    @staticmethod
     def _build_category_patterns() -> List[tuple]:
         return [
+            ("Priority Review",         re.compile(r"\bpriority review\b", re.I)),
+            ("Regulatory Filing",       re.compile(r"\b(?:nda|bla|maa|filing).{0,30}(?:accept|submission)", re.I)),
+            ("Positive Regulatory Recommendation", re.compile(r"\bchmp.{0,30}(?:recommend|positive opinion)", re.I)),
+            ("Market Withdrawal",       re.compile(r"\b(?:withdraw|revok).{0,40}(?:approval|authori[sz]ation|market)", re.I)),
             ("FDA Approval",            re.compile(r"\bfda.*approv|approv.*fda\b", re.I)),
             ("EMA Approval",            re.compile(r"\bema.*approv|approv.*ema\b", re.I)),
             ("CDSCO Approval",          re.compile(r"\bcdsco.*approv|approv.*cdsco\b", re.I)),
             ("NMPA Approval",           re.compile(r"\bnmpa.*approv|approv.*nmpa\b", re.I)),
             ("MHRA Approval",           re.compile(r"\bmhra.*approv|approv.*mhra\b", re.I)),
-            ("Phase III Success",       re.compile(r"phase\s*(?:iii|3).*(?:success|met|positive|achieve)", re.I)),
-            ("Phase III Failure",       re.compile(r"phase\s*(?:iii|3).*(?:fail|miss|negative|did not meet)", re.I)),
+            ("Phase III Success",       re.compile(r"phase\s*(?:(?:ii(?:b)?\s*/\s*)?iii|3).*(?:success|met|positive|achieve|show|reduc)", re.I)),
+            ("Phase III Failure",       re.compile(r"phase\s*(?:(?:ii(?:b)?\s*/\s*)?iii|3).*(?:fail|miss|negative|did not meet)", re.I)),
             ("Clinical Trial",          re.compile(r"clinical\s*trial", re.I)),
             ("M&A Activity",            re.compile(r"acqui(?:re|sition)|merger|takeover|buyout", re.I)),
             ("Licensing Deal",          re.compile(r"licens(?:e|ing).*deal|partner.*agreement|collaborat.*deal", re.I)),

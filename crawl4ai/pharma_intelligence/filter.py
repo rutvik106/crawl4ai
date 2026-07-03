@@ -20,7 +20,7 @@ class ExclusionFilter:
         if is_hard_excluded(combined):
             return True, "Matched hard exclusion pattern (IND/CTA/preclinical/conference/Phase I-II)"
         zero_kpi_types = {"ind_approval", "cta_approval", "filing_acceptance",
-                          "priority_review", "trial_initiation", "conference", "preclinical"}
+                          "trial_initiation", "conference", "preclinical"}
         if event_type in zero_kpi_types:
             return True, f"Zero-KPI event type: {event_type}"
         if self.llm_client:

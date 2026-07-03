@@ -49,6 +49,10 @@ ALL_CATEGORIES: List[str] = [
     "NMPA Approval",
     "MHRA Approval",
     "Other Regulatory Approval",
+    "Priority Review",
+    "Regulatory Filing",
+    "Positive Regulatory Recommendation",
+    "Market Withdrawal",
     # Clinical outcomes
     "Phase III Success",
     "Phase III Failure",
@@ -142,7 +146,6 @@ HARD_EXCLUSION_PATTERNS: List[str] = [
     r"\b(?:abstract|poster) (?:present|at )",
     r"\bfiling (?:accept|receiv)",
     r"(?:accept|receiv).*\bfiling\b",
-    r"\bpriority review (?:grant|designat)",
     r"\bearly discovery\b",
     r"\bdiscovery stage\b",
     r"\bpatent.*filed\b",
@@ -177,6 +180,9 @@ STRONG_INCLUDE_PATTERNS: List[str] = [
     r"\bfirst.*generic.*launch",
     r"\bpatent.*expir",
     r"\bmarket.*exclus",
+    # Priority Review is not automatically Key, but must reach contextual scoring;
+    # otherwise exceptional cases are irreversibly demoted before prioritization.
+    r"\bpriority review\b",
 ]
 
 COMPILED_INCLUDES = [

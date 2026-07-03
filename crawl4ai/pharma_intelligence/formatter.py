@@ -66,20 +66,34 @@ class PharmaEmailFormatter:
 
     @staticmethod
     def _item_to_dict(item: Dict[str, Any]) -> Dict[str, Any]:
+        entities = item.get("entities", {})
+        particular = (
+            entities.get("molecule") or entities.get("brand_name")
+            or item.get("headline") or item.get("title", "")
+        )
         return {
             "title": item.get("title", ""),
             "headline": item.get("headline", item.get("title", "")),
-            "molecule": item.get("entities", {}).get("molecule"),
-            "company": item.get("entities", {}).get("company"),
-            "indication": item.get("entities", {}).get("indication"),
-            "geography": item.get("entities", {}).get("geography"),
+            "particular": particular,
+            "molecule": entities.get("molecule"),
+            "company": entities.get("company"),
+            "indication": entities.get("indication"),
+            "geography": entities.get("geography"),
             "categories": item.get("categories", []),
             "primary_category": item.get("primary_category", ""),
             "therapy_area": item.get("therapy_area"),
             "summary": item.get("summary", ""),
             "key_points": item.get("key_points", []),
+            "event_update": item.get("event_update"),
+            "evidence": item.get("evidence"),
+            "regulatory_status": item.get("regulatory_status"),
+            "clinical_stage": item.get("clinical_stage"),
+            "strategic_significance": item.get("strategic_significance"),
+            "commercial_implications": item.get("commercial_implications"),
             "key_metric": item.get("key_metric"),
             "relevance_score": item.get("relevance_score", 0),
+            "score_rationale": item.get("score_rationale", ""),
+            "classification_confidence": item.get("classification_confidence", 0.0),
             "is_key_highlight": item.get("is_key_highlight", False),
             "demoted": item.get("demoted", False),
             "demotion_reason": item.get("demotion_reason", ""),
@@ -129,6 +143,7 @@ class PharmaEmailFormatter:
     def _render_section(self, section_title: str, items: List[Dict], style_key: str) -> str:
         style = SECTION_STYLES[style_key]
         rows = "".join(self._render_row(item, style) for item in items)
+        highlights_label = "Highlights (Key)" if style_key == "key_highlight" else "Highlights (Other)"
         # 3-column layout matching the client's "Daily Bites" specimen:
         #   Molecule/Particular | Highlights (Key) | View Article
         return f"""\
@@ -145,7 +160,7 @@ class PharmaEmailFormatter:
 <table width="100%" cellpadding="0" cellspacing="0">
 <thead><tr style="background:{style['header_bg']};">
   <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#ffffff;width:26%;">Molecule/Particular</th>
-  <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#ffffff;width:58%;">Highlights (Key)</th>
+  <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#ffffff;width:58%;">{highlights_label}</th>
   <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:700;color:#ffffff;width:16%;">View Article</th>
 </tr></thead>
 <tbody>{rows}</tbody>
@@ -172,8 +187,9 @@ class PharmaEmailFormatter:
         company = entities.get("company") or ""
         therapy = item.get("therapy_area") or ""
         summary = item.get("summary") or item.get("headline") or item.get("title") or ""
-        key_points = item.get("key_points") or []
         key_metric = item.get("key_metric")
+        regulatory_status = item.get("regulatory_status")
+        clinical_stage = item.get("clinical_stage")
         url = item.get("url", "#")
         sources = item.get("sources") or ([item.get("source")] if item.get("source") else [])
         source_text = " + ".join(s for s in sources if s)[:60] if sources else ""
@@ -185,16 +201,14 @@ class PharmaEmailFormatter:
             if url and url != "#" else "—"
         )
 
-        # Highlights (Key): the rich narrative — summary, analytical bullets and
-        # the headline key metric, mirroring the specimen's prose-style cell.
+        # Daily Bites uses compact prose. Structured fields remain available in
+        # JSON, while the email surfaces status/stage without duplicative bullets.
         highlights = f'<span style="font-size:12px;color:#334155;line-height:1.55;">{summary[:900]}</span>'
-        if key_points:
-            bullets = "".join(
-                f'<li style="margin:2px 0;">{p[:240]}</li>' for p in key_points[:4]
-            )
+        detail_bits = [str(v).rstrip(".") for v in (regulatory_status, clinical_stage) if v]
+        if detail_bits:
             highlights += (
-                f'<ul style="margin:6px 0 0;padding-left:16px;font-size:11px;'
-                f'color:#475569;line-height:1.5;">{bullets}</ul>'
+                f'<br/><span style="font-size:10px;color:#64748b;">'
+                f'{" &nbsp;|&nbsp; ".join(detail_bits)}</span>'
             )
         if key_metric:
             highlights += f'<br/><b style="font-size:11px;color:#0f3d52;">{key_metric}</b>'

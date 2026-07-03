@@ -34,11 +34,16 @@ class LeadershipSummarizer:
             if not isinstance(key_points, list):
                 key_points = [str(key_points)]
             key_points = [str(p).strip() for p in key_points if str(p).strip()]
+            fallbacks = self._derive_components(text, entities)
             return {
                 "summary": data.get("summary") or self._extract_lead_sentences(text),
                 "headline": data.get("headline", title[:80]),
                 "key_metric": data.get("key_metric"),
                 "key_points": key_points,
+                **{
+                    key: data.get(key) or fallback
+                    for key, fallback in fallbacks.items()
+                },
             }
         except Exception:
             return self._summarize_with_rules(title, text, entities)
@@ -49,6 +54,7 @@ class LeadershipSummarizer:
             "headline": title[:100],
             "key_metric": self._extract_key_metric(text),
             "key_points": self._derive_key_points(text, entities),
+            **self._derive_components(text, entities),
         }
 
     @staticmethod
@@ -100,3 +106,54 @@ class LeadershipSummarizer:
             if m:
                 return m.group(0)
         return None
+
+    @classmethod
+    def _derive_components(cls, text: str, entities: Dict) -> Dict[str, Optional[str]]:
+        """Extract grounded components for the no-LLM fallback and API consumers."""
+        sentences = [
+            s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip())
+            if len(s.strip()) > 25
+        ]
+        event_update = sentences[0] if sentences else (text[:400].strip() or None)
+
+        evidence = next((
+            s for s in sentences
+            if re.search(r"\d", s) and re.search(
+                r"(?:endpoint|phase|patient|reduction|response|pfs|survival|sales|deal|\$|₹|%)",
+                s, re.IGNORECASE,
+            )
+        ), None)
+        strategic = next((
+            s for s in sentences
+            if re.search(
+                r"(?:first|only|unmet need|standard of care|competitive|addresses|expands access|risk reduction)",
+                s, re.IGNORECASE,
+            )
+        ), None)
+        commercial = next((
+            s for s in sentences
+            if re.search(
+                r"(?:launch|commercial|market|sales|revenue|pricing|price|patent|exclusivity|deal value|acquisition)",
+                s, re.IGNORECASE,
+            )
+        ), None)
+
+        status = entities.get("regulatory_status")
+        regulator = entities.get("regulatory_body")
+        geography = entities.get("geography")
+        regulatory_status = None
+        if status and status != "not_applicable":
+            label = str(status).replace("_", " ").capitalize()
+            context = " in ".join(str(v) for v in (regulator, geography) if v)
+            regulatory_status = f"{label}{f' - {context}' if context else ''}."
+
+        trial_phase = entities.get("trial_phase")
+        clinical_stage = f"Clinical stage: {trial_phase}." if trial_phase else None
+        return {
+            "event_update": event_update,
+            "evidence": evidence,
+            "regulatory_status": regulatory_status,
+            "clinical_stage": clinical_stage,
+            "strategic_significance": strategic,
+            "commercial_implications": commercial,
+        }
