@@ -48,84 +48,14 @@ def render():
 
     st.divider()
 
-    st.subheader("�️ Unblocker Proxy")
-    st.caption("BrightData Web Unlocker (or any authenticated proxy). Used for jobs "
-               "with 'Use unblocker proxy' enabled, for sites that block direct access.")
-    proxy_server = st.text_input(
-        "Proxy Server",
-        value=settings.get("proxy_server", os.getenv("PROXY_SERVER", "")),
-        placeholder="http://brd.superproxy.io:33335",
-    )
-    pcol1, pcol2 = st.columns(2)
-    proxy_username = pcol1.text_input(
-        "Proxy Username",
-        value=settings.get("proxy_username", os.getenv("PROXY_USERNAME", "")),
-    )
-    proxy_password = pcol2.text_input(
-        "Proxy Password",
-        value=settings.get("proxy_password", os.getenv("PROXY_PASSWORD", "")),
-        type="password",
-    )
-
-    st.divider()
-
-    st.subheader("�🕷️ Crawl Defaults")
-
-    col1, col2 = st.columns(2)
-    default_max_scrolls = col1.number_input(
-        "Default max scrolls",
-        value=int(settings.get("default_max_scrolls", "10")),
-        min_value=1,
-        max_value=50,
-    )
-    default_max_inner = col2.number_input(
-        "Default max inner pages",
-        value=int(settings.get("default_max_inner_pages", "20")),
-        min_value=1,
-        max_value=50,
-    )
-    default_content_limit = col1.number_input(
-        "Default content limit (chars)",
-        value=int(settings.get("default_content_limit", "12000")),
-        min_value=1000,
-        max_value=100000,
-        step=1000,
-    )
-
-    st.divider()
-
-    if st.button("💾 Save Settings", type="primary", use_container_width=True):
-        db.set_setting("groq_api_key", groq_key)
-        db.set_setting("anthropic_api_key", anthropic_key)
-        db.set_setting("llm_provider", llm_provider)
-        db.set_setting("proxy_server", proxy_server)
-        db.set_setting("proxy_username", proxy_username)
-        db.set_setting("proxy_password", proxy_password)
-        db.set_setting("default_max_scrolls", str(default_max_scrolls))
-        db.set_setting("default_max_inner_pages", str(default_max_inner))
-        db.set_setting("default_content_limit", str(default_content_limit))
-        st.success("Settings saved!")
-
-    st.divider()
-
-    # Test email delivery
-    st.subheader("🧪 Test Email")
-    st.caption("Sends a test email via the email API to verify delivery is working.")
-    test_email = st.text_input("Send test email to", placeholder="your@email.com")
-    if st.button("Send Test"):
-        if test_email:
-            _send_test_email(test_email)
-        else:
+    st.subheader("🛡
             st.error("Enter a recipient email address first.")
 
 
 def _send_test_email(to: str) -> None:
     payload = {
         "to": to,
-        "subject": "Test Email",
-        "html": "<h2>Crawl4AI Test Email</h2><p>If you see this, your email delivery is working correctly!</p>",
-        "text": "Crawl4AI Test Email - If you see this, your email delivery is working correctly!",
-    }
+        "subject": "Test Email", l</Ia
 
     req = urllib.request.Request(
         EMAIL_API_URL,
@@ -139,7 +69,7 @@ def _send_test_email(to: str) -> None:
             if response.status in (200, 201, 202):
                 st.success(f"Test email sent to {to}!")
             else:
-                st.error(f"Email API returned status {response.status}")
+                sterror(f"Email API returned status {response.status}")
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8")
         st.error(f"Failed: HTTP {e.code}: {body}")
