@@ -6,18 +6,31 @@ Focus areas (driven by client feedback):
   2. Summary depth        - summaries are substantive (multi-sentence) and carry
                              analytical key_points.
   3. LLM provider routing - the API can select OpenAI or native Anthropic Claude.
+  4. LLM failure visibility - an LLM error must be logged, never silently
+                             swallowed (a bad model name previously degraded
+                             the whole brief to rule-based output with zero
+                             trace in the logs).
 """
 
+import logging
 import os
+import sys
+import types
 
 import pytest
 
 from crawl4ai.pharma_intelligence import PharmaArticle, PharmaPipeline
 from crawl4ai.pharma_intelligence.formatter import PharmaEmailFormatter
 from crawl4ai.pharma_intelligence.classifier import ArticleClassifier
+from crawl4ai.pharma_intelligence.deduplicator import Deduplicator
 from crawl4ai.pharma_intelligence.extraction import EntityExtractor
+from crawl4ai.pharma_intelligence.filter import ExclusionFilter
 from crawl4ai.pharma_intelligence.scorer import RelevanceScorer
 from crawl4ai.pharma_intelligence.summarizer import LeadershipSummarizer
+
+
+def _failing_llm(system: str, user: str) -> str:
+    raise RuntimeError("simulated LLM failure")
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -317,6 +330,72 @@ def test_material_indian_market_shift_can_be_key_without_regulatory_event():
     assert item.is_key_highlight is True
 
 
+def test_present_tense_approval_headline_is_final_approval_not_trial_outcome():
+    """Regression: headlines phrased as 'X approves Y' (present tense) must be
+    recognized as final_approval even when the body cites Phase III evidence.
+    Previously only the past participle ('approved') was matched, so real
+    approval headlines fell through to the body text where the Phase III
+    mention caused a mislabel as a mere 'trial_outcome'."""
+    title = "FDA approves AstraZeneca Imfinzi durvalumab with BCG for bladder cancer"
+    text = (
+        "The FDA approved AstraZeneca's Imfinzi durvalumab with BCG for BCG-naive "
+        "high-risk non-muscle-invasive bladder cancer. The Phase III POTOMAC trial "
+        "showed a 32% reduction in recurrence, progression, or death versus BCG "
+        "alone. This is the first new therapy in over 30 years for this setting."
+    )
+    entities = EntityExtractor().extract(title, text)
+    assert entities["regulatory_status"] == "final_approval"
+
+
+def test_historical_approval_mention_does_not_override_priority_review():
+    """An article mainly about a Priority Review that incidentally mentions an
+    older, unrelated approval in its body must still resolve to
+    priority_review, not final_approval (the two-pass headline-then-body
+    ordering must be preserved by the approval-verb regex broadening)."""
+    title = "Dizal sunvozertinib gets China NDA acceptance with Priority Review for NSCLC"
+    text = (
+        "Dizal received NMPA China NDA acceptance with Priority Review for "
+        "first-line treatment of EGFR exon20ins NSCLC based on Phase III "
+        "WU-KONG28 showing significant PFS benefit. Already approved in US and "
+        "China for previously treated EGFR exon20ins NSCLC."
+    )
+    entities = EntityExtractor().extract(title, text)
+    assert entities["regulatory_status"] == "priority_review"
+
+
+def test_generic_word_in_market_commentary_does_not_force_demote():
+    """Regression: the routine-generic demotion guard used to scan the full
+    body text, so a market-analysis article that merely mentions 'generic'
+    in passing (not as its own headline event) was wrongly force-demoted
+    regardless of its score."""
+    article = PharmaArticle(
+        title="India GLP-1 market momentum slows due to price war",
+        text=(
+            "Multiple Indian pharma companies see GLP-1 market momentum slow due "
+            "to price war including innovator price cuts, weak patient retention, "
+            "and prescription plateauing. Generic semaglutide launched post-patent "
+            "expiry; market ~Rs 1,900-2,000 crore now moderating. Companies cutting "
+            "sales targets 25-30%, inventory build-up over Rs 100 crore."
+        ),
+    )
+    item = PharmaPipeline(llm_client=None).process([article])[0]
+    assert item.is_key_highlight is True
+
+
+def test_generic_approval_headline_still_demoted():
+    """The guardrail must still catch genuine routine-generic-approval
+    headlines (unaffected by scoping the check to the headline)."""
+    title = "Alembic receives FDA final approval for generic oseltamivir"
+    text = (
+        "Alembic Pharmaceuticals received US FDA final approval for generic "
+        "oral suspension of oseltamivir phosphate for influenza treatment."
+    )
+    entities = EntityExtractor().extract(title, text)
+    categories = ArticleClassifier().classify(title, text, entities)["categories"]
+    result = RelevanceScorer().score(title, categories, entities, entities["event_type"], text)
+    assert result["is_key_highlight"] is False
+
+
 def test_phase_iib_iii_analysis_is_a_trial_outcome_not_historical_approval():
     title = "Olezarsen Phase IIb/III analysis shows pancreatitis reduction"
     text = (
@@ -397,3 +476,109 @@ def test_clients_return_none_without_keys(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert intelligence._make_openai_client() is None
     assert intelligence._make_anthropic_client() is None
+
+
+# ── 5. LLM failure visibility ──────────────────────────────────────────────────
+# Regression coverage for a real production incident: PHARMA_LLM_MODEL pointed at
+# a model name the Anthropic account could not access. Every layer below caught
+# that error and silently fell back to rule-based processing, so the brief
+# quietly degraded to one-line summaries and weak categorization with nothing in
+# the logs to explain why. These tests assert the failure is now always logged.
+
+def test_anthropic_client_default_model_is_not_the_broken_one(monkeypatch):
+    """The old default ('claude-3-5-sonnet-latest') 404s on current Anthropic
+    accounts. Guard against silently reintroducing it."""
+    from api.routers import intelligence
+
+    captured = {}
+
+    class _FakeMessages:
+        def create(self, model, **kwargs):
+            captured["model"] = model
+            return types.SimpleNamespace(content=[])
+
+    class _FakeAnthropic:
+        def __init__(self, api_key):
+            self.messages = _FakeMessages()
+
+    monkeypatch.setitem(sys.modules, "anthropic", types.SimpleNamespace(Anthropic=_FakeAnthropic))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.delenv("PHARMA_LLM_MODEL", raising=False)
+
+    call_llm = intelligence._make_anthropic_client()
+    assert call_llm is not None
+    call_llm("system", "user")
+    assert captured["model"] != "claude-3-5-sonnet-latest"
+
+
+def test_anthropic_client_respects_explicit_model_override(monkeypatch):
+    from api.routers import intelligence
+
+    captured = {}
+
+    class _FakeMessages:
+        def create(self, model, **kwargs):
+            captured["model"] = model
+            return types.SimpleNamespace(content=[])
+
+    class _FakeAnthropic:
+        def __init__(self, api_key):
+            self.messages = _FakeMessages()
+
+    monkeypatch.setitem(sys.modules, "anthropic", types.SimpleNamespace(Anthropic=_FakeAnthropic))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("PHARMA_LLM_MODEL", "claude-opus-4-8")
+
+    call_llm = intelligence._make_anthropic_client()
+    call_llm("system", "user")
+    assert captured["model"] == "claude-opus-4-8"
+
+
+@pytest.mark.parametrize(
+    "layer_factory, method, args, expected_message_fragment",
+    [
+        (lambda: EntityExtractor(llm_client=_failing_llm), "extract",
+         ("FDA approves drug", "Some article text."), "rule-based extraction"),
+        (lambda: ArticleClassifier(llm_client=_failing_llm), "classify",
+         ("FDA approves drug", "Some article text.", {}), "rule-based classification"),
+        (lambda: RelevanceScorer(llm_client=_failing_llm), "score",
+         ("FDA approves drug", [], {}, "approval", "Some article text."), "rule-based scoring"),
+        (lambda: LeadershipSummarizer(llm_client=_failing_llm), "summarize",
+         ("FDA approves drug", "Some article text.", {}), "rule-based summarization"),
+    ],
+)
+def test_llm_failure_is_logged_not_silent(caplog, layer_factory, method, args, expected_message_fragment):
+    layer = layer_factory()
+    with caplog.at_level(logging.WARNING):
+        result = getattr(layer, method)(*args)
+    assert result  # falls back and still returns usable data
+    assert any(expected_message_fragment in r.message for r in caplog.records), (
+        f"expected a log record mentioning {expected_message_fragment!r}, got: "
+        f"{[r.message for r in caplog.records]}"
+    )
+
+
+def test_exclusion_filter_llm_failure_is_logged(caplog):
+    filter_ = ExclusionFilter(llm_client=_failing_llm)
+    with caplog.at_level(logging.WARNING):
+        excluded, reason = filter_.should_exclude(
+            "Some ambiguous headline", "Ambiguous article body with no strong signal.", "other"
+        )
+    assert reason
+    assert any("defaulting to include" in r.message for r in caplog.records)
+
+
+def test_deduplicator_llm_failure_is_logged(caplog):
+    """Titles are deliberately dissimilar (so the cheap Jaccard check can't
+    short-circuit) while entities match, forcing the LLM verification path."""
+    dedup = Deduplicator(llm_client=_failing_llm)
+    a = {"title": "Regulator grants marketing clearance for new therapy",
+         "summary": "x", "entities": {"molecule": "moleculex", "event_type": "approval",
+                                       "regulatory_body": "FDA", "company": "acme"}}
+    b = {"title": "Acme announces milestone decision from health authority",
+         "summary": "y", "entities": {"molecule": "moleculex", "event_type": "approval",
+                                       "regulatory_body": "FDA", "company": "acme"}}
+    with caplog.at_level(logging.WARNING):
+        is_dup = dedup._are_duplicates(a, b)
+    assert is_dup is False  # fails safe: treated as not-duplicate rather than merged
+    assert any("dedup check failed" in r.message for r in caplog.records)

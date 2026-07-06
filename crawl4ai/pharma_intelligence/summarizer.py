@@ -2,11 +2,14 @@
 Layer 5: Leadership-Ready Summarization
 """
 from __future__ import annotations
+import logging
 import re
 from typing import Any, Callable, Dict, Optional
 
 from .prompts import SYSTEM_PHARMA_EXPERT, SUMMARIZATION_PROMPT
 from .extraction import _parse_json
+
+logger = logging.getLogger(__name__)
 
 
 class LeadershipSummarizer:
@@ -45,7 +48,11 @@ class LeadershipSummarizer:
                     for key, fallback in fallbacks.items()
                 },
             }
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "LLM summarization failed for '%s' (%s: %s); falling back to rule-based summarization",
+                title, type(e).__name__, e,
+            )
             return self._summarize_with_rules(title, text, entities)
 
     def _summarize_with_rules(self, title: str, text: str, entities: Dict) -> Dict:

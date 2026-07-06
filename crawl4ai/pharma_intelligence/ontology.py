@@ -198,3 +198,51 @@ def is_hard_excluded(text: str) -> bool:
 def has_strong_include_signal(text: str) -> bool:
     combined = text[:2000]
     return any(p.search(combined) for p in COMPILED_INCLUDES)
+
+
+# ── Shared regulatory-milestone detector ───────────────────────────────────────
+# Previously duplicated (and drifting) between extraction.py and scorer.py.
+# Both now delegate here so a fix only needs to happen once.
+def detect_regulatory_status(title: str, text: str, event_type: str = "other", truncate: int = 1800) -> str:
+    """Classify the regulatory milestone stated by an article.
+
+    Checks the headline first, then the full title+body text, so an article
+    about a Priority Review / designation / trial outcome that incidentally
+    mentions an *older* approval elsewhere in its body is not mistaken for a
+    brand-new final approval.
+
+    Regression note: the final-approval pattern must match present-tense verb
+    forms ("FDA approves...", "...gets FDA approval") in addition to the past
+    participle ("approved"), otherwise real approval headlines phrased in the
+    present tense fall through to the body text, where a cited Phase III
+    result can cause a genuine approval to be mislabeled as a mere
+    "trial_outcome" (this under-scored several real Key Highlights, e.g.
+    FDA-approved products whose approval was backed by Phase III data).
+    """
+    headline = title.lower()
+    combined = f"{title} {text[:truncate]}".lower()
+    for haystack in (headline, combined):
+        if "priority review" in haystack:
+            return "priority_review"
+        if re.search(r"\b(?:filing|nda|bla|maa).{0,35}(?:accept|submission)", haystack):
+            return "filing_acceptance"
+        if re.search(r"\b(?:chmp|advisory committee).{0,35}(?:recommend|opinion)", haystack):
+            return "positive_recommendation"
+        if re.search(r"\b(?:label (?:update|expansion)|new indication)", haystack):
+            return "label_expansion"
+        if re.search(r"\b(?:withdraw|revok|discontinu)", haystack):
+            return "withdrawal"
+        if re.search(r"\b(?:fast track|breakthrough therapy|orphan drug).{0,25}designat", haystack):
+            return "designation"
+        if re.search(r"\b(?:phase\s*(?:(?:ii(?:b)?\s*/\s*)?iii|3)|pivotal).{0,100}(?:met|show|success|positive|fail|miss|reduc)", haystack):
+            return "trial_outcome"
+        if (
+            re.search(r"\b(?:approv(?:e[sd]?|al|ing)|final approval|marketing authori[sz]ation|gets? (?:fda|ema|cdsco|nmpa) nod)\b", haystack)
+            and not re.search(r"\bnot (?:yet )?approved\b", headline)
+        ):
+            return "final_approval"
+        if re.search(r"\blaunch(?:ed|es)?\b", haystack):
+            return "launch"
+    if event_type == "patent":
+        return "exclusivity"
+    return "not_applicable" if event_type in ("other", None, "") else str(event_type)

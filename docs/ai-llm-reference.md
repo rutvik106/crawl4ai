@@ -59,8 +59,8 @@ return _make_openai_client()
 | `groq/mixtral-8x7b-32768` | Groq | Yes | User-selectable in Settings UI |
 | `gpt-4o-mini` | OpenAI | No (auto-fallback) | Jobs/consolidated reports when Groq key absent |
 | `openai/gpt-4o` | OpenAI | No (code default) | Default value in `LLMConfig` dataclass; overridden at runtime |
-| `claude-3-5-sonnet-latest` | Anthropic | Via env var | Pharma pipeline when `PHARMA_LLM_PROVIDER=anthropic` |
-| `$PHARMA_LLM_MODEL` | Anthropic | Via env var | Any Anthropic model; overrides `claude-3-5-sonnet-latest` |
+| `claude-sonnet-4-5-20250929` | Anthropic | Via env var | Pharma pipeline when `PHARMA_LLM_PROVIDER=anthropic` |
+| `$PHARMA_LLM_MODEL` | Anthropic | Via env var | Any Anthropic model; overrides the default above |
 
 **Relevant files:**
 - `crawl4ai/llm_config.py` — `LLMConfig` dataclass (default `openai/gpt-4o`)
@@ -458,7 +458,7 @@ Every LLM call has a deterministic fallback so the system runs without API keys.
 | `OPENAI_API_KEY` | — | OpenAI API key (fallback) |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key (pharma pipeline alternative) |
 | `PHARMA_LLM_PROVIDER` | `"openai"` | Selects pharma pipeline provider: `"openai"` (uses Groq via litellm) or `"anthropic"` |
-| `PHARMA_LLM_MODEL` | `"claude-3-5-sonnet-latest"` | Anthropic model override (only applies when `PHARMA_LLM_PROVIDER=anthropic`) |
+| `PHARMA_LLM_MODEL` | `"claude-sonnet-4-5-20250929"` | Anthropic model override (only applies when `PHARMA_LLM_PROVIDER=anthropic`). Verify this model is available to your Anthropic account/key — an invalid name here causes every pipeline layer to silently fall back to rule-based output (now logged as a warning; see `api/routers/intelligence.py`). |
 
 ### Database Settings (override env vars at runtime)
 

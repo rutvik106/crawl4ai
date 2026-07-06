@@ -1,12 +1,15 @@
 """Layer 4: contextual Daily Bites prioritization."""
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Callable, Dict, List, Optional
 
 from .extraction import _parse_json
-from .ontology import KEY_HIGHLIGHT_SCORE_THRESHOLD
+from .ontology import KEY_HIGHLIGHT_SCORE_THRESHOLD, detect_regulatory_status
 from .prompts import RELEVANCE_PROMPT, SYSTEM_PHARMA_EXPERT
+
+logger = logging.getLogger(__name__)
 
 
 class RelevanceScorer:
@@ -63,7 +66,11 @@ class RelevanceScorer:
                 "classification_confidence": self._confidence(data.get("classification_confidence")),
                 "model_key_recommendation": bool(data.get("is_key_highlight", False)),
             }
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "LLM relevance scoring failed for '%s' (%s: %s); falling back to rule-based scoring",
+                title, type(e).__name__, e,
+            )
             return self._score_with_rules(title, text, categories, entities, event_type)
 
     def _score_with_rules(
@@ -194,30 +201,7 @@ class RelevanceScorer:
         supplied = entities.get("regulatory_status")
         if supplied and supplied != "not_applicable":
             return str(supplied)
-        # The headline is weighted first so an article about Priority Review that
-        # mentions an older approval is not mistaken for a new final approval.
-        headline = title.lower()
-        combined = f"{title} {text[:1800]}".lower()
-        for haystack in (headline, combined):
-            if "priority review" in haystack:
-                return "priority_review"
-            if re.search(r"\b(?:filing|nda|bla|maa).{0,35}(?:accept|submission)", haystack):
-                return "filing_acceptance"
-            if re.search(r"\b(?:chmp|advisory committee).{0,35}(?:recommend|opinion)", haystack):
-                return "positive_recommendation"
-            if re.search(r"\b(?:label (?:update|expansion)|new indication)", haystack):
-                return "label_expansion"
-            if re.search(r"\b(?:withdraw|revok|discontinu)", haystack):
-                return "withdrawal"
-            if re.search(r"\b(?:fast track|breakthrough therapy|orphan drug).{0,25}designat", haystack):
-                return "designation"
-            if re.search(r"\b(?:phase\s*(?:(?:ii(?:b)?\s*/\s*)?iii|3)|pivotal).{0,100}(?:met|show|success|positive|fail|miss|reduc)", haystack):
-                return "trial_outcome"
-            if re.search(r"\b(?:approved|final approval|marketing authori[sz]ation|gets? (?:fda|ema|cdsco|nmpa) nod)\b", haystack) and not re.search(r"\bnot (?:yet )?approved\b", headline):
-                return "final_approval"
-            if re.search(r"\blaunch(?:ed|es)?\b", haystack):
-                return "launch"
-        return "not_applicable" if event_type == "other" else str(event_type)
+        return detect_regulatory_status(title, text, event_type, truncate=1800)
 
     def _determine_key_highlight(
         self,
@@ -229,9 +213,16 @@ class RelevanceScorer:
     ) -> bool:
         score = int(result.get("total_score", 0))
         combined = f"{title} {text[:2500]}".lower()
+        headline = title.lower()
         status = self._regulatory_status(title, text, entities, event_type)
 
-        routine_generic = bool(re.search(r"\b(?:generic|anda|tentative approval)\b", combined))
+        # Scoped to the HEADLINE (not the full body) so a market-commentary
+        # article that merely mentions "generic" in passing (e.g. "Generic
+        # semaglutide launched post-patent expiry" inside a piece about a
+        # broader market slowdown) isn't wrongly force-demoted. Genuine
+        # routine-generic-approval articles state it in the headline itself
+        # (e.g. "Alembic receives FDA final approval for generic oseltamivir").
+        routine_generic = bool(re.search(r"\b(?:generic|anda|tentative approval)\b", headline))
         exceptional_generic = bool(re.search(r"\b(?:first generic|exclusive|exclusivity|market size|annual sales)\b", combined))
         if routine_generic and not exceptional_generic:
             return False

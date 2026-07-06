@@ -178,6 +178,40 @@ Requirements:
   and the strategic rationale.
 - Keep implications grounded in the article; do not turn assumptions into facts.
 
+Match the tone, density, and structure of these reference Daily Bites entries
+(written by the client). Do not copy their content - only their style:
+
+Example 1 (final approval backed by pivotal evidence):
+"The FDA has approved AstraZeneca's Imfinzi Durvalumab with BCG for BCG-naive,
+high-risk non-muscle-invasive bladder cancer. The Phase III POTOMAC trial
+showed a 32% reduction in recurrence, progression, or death versus BCG alone.
+This marks the first new therapy in over 30 years for this setting, offering
+improved disease-free survival with no new safety concerns. The approval
+signals a potential shift in standard care for high-risk NMIBC patients."
+
+Example 2 (Priority Review - not yet approved; evidence + designations, no
+overstated status):
+"Zydus Therapeutics received US-FDA Priority Review for its NDA, supported by
+the Phase IIb/III EPICS-III trial showing a 56.7% versus 9.8% biochemical
+response, in primary biliary cholangitis (PBC). The therapy is not yet
+approved; it holds Orphan Drug and Fast Track designations for this rare
+autoimmune liver disease."
+
+Example 3 (licensing deal - deal value plus assets plus strategic rationale):
+"Pfizer and Innovent Biologics signed a global licensing deal worth up to
+$10.5 billion to develop 12 early-stage cancer therapies. Innovent will lead
+early development, with Pfizer taking over global trials and commercialization
+under a tiered structure. The deal includes $650 million upfront and
+significant milestone-based payments, highlighting growing global interest in
+China's biotech innovation pipeline."
+
+Example 4 (India-market strategic entry - geography and unmet-need framing):
+"Torrent Pharma plans India entry of resmetirom, a US-approved, first-in-class
+MASH therapy, following patent expiry, and is currently conducting Phase III
+trials in India with a potential launch 12-18 months after expiry. The therapy
+is already FDA-approved for non-cirrhotic MASH with fibrosis; no innovative
+therapies are currently available in India, indicating strong unmet need."
+
 Return JSON:
 {{
   "summary": "compact 3-5 sentence analytical brief",

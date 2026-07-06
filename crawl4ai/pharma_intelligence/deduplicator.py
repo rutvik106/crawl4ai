@@ -2,11 +2,14 @@
 Duplicate Event Clustering
 """
 from __future__ import annotations
+import logging
 import re
 from typing import Any, Callable, Dict, List, Optional
 
 from .prompts import SYSTEM_PHARMA_EXPERT, DEDUPLICATION_PROMPT
 from .extraction import _parse_json
+
+logger = logging.getLogger(__name__)
 
 
 def _normalise_text(text: str) -> str:
@@ -79,7 +82,11 @@ class Deduplicator:
         try:
             response = self.llm_client(SYSTEM_PHARMA_EXPERT, user_prompt)
             return bool(_parse_json(response).get("is_duplicate", False))
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "LLM dedup check failed for '%s' / '%s' (%s: %s); defaulting to not-duplicate",
+                a.get("title", ""), b.get("title", ""), type(e).__name__, e,
+            )
             return False
 
     @staticmethod

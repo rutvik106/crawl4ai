@@ -2,12 +2,15 @@
 Layer 2: Multi-label Pharma Article Classification
 """
 from __future__ import annotations
+import logging
 import re
 from typing import Any, Callable, Dict, List, Optional
 
 from .prompts import SYSTEM_PHARMA_EXPERT, CLASSIFICATION_PROMPT
 from .ontology import ALL_CATEGORIES
 from .extraction import _parse_json
+
+logger = logging.getLogger(__name__)
 
 
 class ArticleClassifier:
@@ -39,7 +42,11 @@ class ArticleClassifier:
                 "primary_category": data.get("primary_category") or cats[0],
                 "therapy_area": data.get("therapy_area"),
             }
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "LLM classification failed for '%s' (%s: %s); falling back to rule-based classification",
+                title, type(e).__name__, e,
+            )
             return self._classify_with_rules(title, text, entities)
 
     def _classify_with_rules(self, title: str, text: str, entities: Dict) -> Dict:

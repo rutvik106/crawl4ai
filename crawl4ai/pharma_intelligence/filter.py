@@ -2,11 +2,14 @@
 Layer 3: Exclusion Filter / Noise Reduction
 """
 from __future__ import annotations
+import logging
 from typing import Callable, Optional, Tuple
 
 from .ontology import is_hard_excluded, has_strong_include_signal
 from .prompts import SYSTEM_PHARMA_EXPERT, EXCLUSION_PROMPT
 from .extraction import _parse_json
+
+logger = logging.getLogger(__name__)
 
 
 class ExclusionFilter:
@@ -40,4 +43,8 @@ class ExclusionFilter:
                 return False, f"Low-confidence AI exclusion ({confidence:.2f}); defaulting to include"
             return exclude, reason
         except Exception as e:
+            logger.warning(
+                "LLM exclusion check failed for '%s' (%s: %s); defaulting to include",
+                title, type(e).__name__, e,
+            )
             return False, f"AI exclusion error ({e}); defaulting to include"

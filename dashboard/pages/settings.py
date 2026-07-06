@@ -48,14 +48,32 @@ def render():
 
     st.divider()
 
-    st.subheader("🛡
+    if st.button("💾 Save Settings", type="primary", use_container_width=True):
+        db.set_setting("groq_api_key", groq_key)
+        db.set_setting("anthropic_api_key", anthropic_key)
+        db.set_setting("llm_provider", llm_provider)
+        st.success("Settings saved!")
+
+    st.divider()
+
+    # Test email delivery
+    st.subheader("🧪 Test Email")
+    st.caption("Sends a test email via the email API to verify delivery is working.")
+    test_email = st.text_input("Send test email to", placeholder="your@email.com")
+    if st.button("Send Test"):
+        if test_email:
+            _send_test_email(test_email)
+        else:
             st.error("Enter a recipient email address first.")
 
 
 def _send_test_email(to: str) -> None:
     payload = {
         "to": to,
-        "subject": "Test Email", l</Ia
+        "subject": "Test Email",
+        "html": "<h2>Crawl4AI Test Email</h2><p>If you see this, your email delivery is working correctly!</p>",
+        "text": "Crawl4AI Test Email - If you see this, your email delivery is working correctly!",
+    }
 
     req = urllib.request.Request(
         EMAIL_API_URL,
@@ -69,7 +87,7 @@ def _send_test_email(to: str) -> None:
             if response.status in (200, 201, 202):
                 st.success(f"Test email sent to {to}!")
             else:
-                sterror(f"Email API returned status {response.status}")
+                st.error(f"Email API returned status {response.status}")
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8")
         st.error(f"Failed: HTTP {e.code}: {body}")

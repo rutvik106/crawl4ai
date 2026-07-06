@@ -6,11 +6,14 @@ from raw article text using LLM with rule-based fallbacks.
 """
 from __future__ import annotations
 import json
+import logging
 import re
 from typing import Any, Callable, Dict, Optional
 
 from .prompts import SYSTEM_PHARMA_EXPERT, EXTRACTION_PROMPT
-from .ontology import REGULATORY_BODIES, THERAPY_AREAS
+from .ontology import REGULATORY_BODIES, THERAPY_AREAS, detect_regulatory_status
+
+logger = logging.getLogger(__name__)
 
 
 class EntityExtractor:
@@ -52,7 +55,11 @@ class EntityExtractor:
             response = self.llm_client(SYSTEM_PHARMA_EXPERT, user_prompt)
             data = _parse_json(response)
             return self._normalise(data)
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "LLM extraction failed for '%s' (%s: %s); falling back to rule-based extraction",
+                title, type(e).__name__, e,
+            )
             return self._extract_with_rules(title, text)
 
     def _extract_with_rules(self, title: str, text: str) -> Dict[str, Any]:
@@ -78,7 +85,7 @@ class EntityExtractor:
             "molecule": None, "brand_name": None, "company": None,
             "indication": None, "trial_phase": trial_phase, "geography": None,
             "regulatory_body": regulatory_body, "event_type": event_type,
-            "regulatory_status": self._regulatory_status(title, combined, event_type),
+            "regulatory_status": detect_regulatory_status(title, text, event_type, truncate=1500),
             "deal_value": None,
         }
 
@@ -91,34 +98,6 @@ class EntityExtractor:
         }
         defaults.update({k: v for k, v in data.items() if v not in ("", "null")})
         return defaults
-
-    @staticmethod
-    def _regulatory_status(title: str, text: str, event_type: str) -> str:
-        headline = title.lower()
-        combined = text.lower()
-        # Headline/main-event milestones take precedence over historical context.
-        for haystack in (headline, combined):
-            if "priority review" in haystack:
-                return "priority_review"
-            if re.search(r"\b(?:filing|nda|bla|maa).{0,35}(?:accept|submission)", haystack):
-                return "filing_acceptance"
-            if re.search(r"\b(?:chmp|advisory committee).{0,35}(?:recommend|opinion)", haystack):
-                return "positive_recommendation"
-            if re.search(r"\b(?:label (?:update|expansion)|new indication)", haystack):
-                return "label_expansion"
-            if re.search(r"\b(?:withdraw|revok|discontinu)", haystack):
-                return "withdrawal"
-            if re.search(r"\b(?:fast track|breakthrough therapy|orphan drug).{0,25}designat", haystack):
-                return "designation"
-            if re.search(r"\b(?:phase\s*(?:(?:ii(?:b)?\s*/\s*)?iii|3)|pivotal).{0,100}(?:met|show|success|positive|fail|miss|reduc)", haystack):
-                return "trial_outcome"
-            if re.search(r"\b(?:approved|final approval|marketing authori[sz]ation|gets? (?:fda|ema|cdsco|nmpa) nod)\b", haystack) and not re.search(r"\bnot (?:yet )?approved\b", headline):
-                return "final_approval"
-            if re.search(r"\blaunch(?:ed|es)?\b", haystack):
-                return "launch"
-        if event_type == "patent":
-            return "exclusivity"
-        return "not_applicable"
 
 
 def _parse_json(text: str) -> Dict[str, Any]:

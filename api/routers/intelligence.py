@@ -277,11 +277,13 @@ def _make_openai_client() -> Optional[Callable[[str, str], str]]:
     openai_key = os.getenv("OPENAI_API_KEY", "")
 
     if not (groq_key or openai_key):
+        logger.warning("[pharma-llm] No Groq/OpenAI key configured; OpenAI-family client unavailable")
         return None
 
     try:
         import litellm
-    except Exception:
+    except Exception as e:
+        logger.warning("[pharma-llm] litellm unavailable (%s: %s); OpenAI-family client unavailable", type(e).__name__, e)
         return None
 
     model = llm_provider if groq_key else "gpt-4o-mini"
@@ -300,6 +302,7 @@ def _make_openai_client() -> Optional[Callable[[str, str], str]]:
         )
         return resp.choices[0].message.content or ""
 
+    logger.info("[pharma-llm] Using OpenAI-family model '%s'", model)
     return call_llm
 
 
@@ -309,13 +312,21 @@ def _make_anthropic_client() -> Optional[Callable[[str, str], str]]:
     Claude takes the system prompt as a top-level argument (not a message role),
     so we map our (system, user) signature accordingly. Reads ANTHROPIC_API_KEY
     and PHARMA_LLM_MODEL (defaults to a current Claude model).
+
+    NOTE: the previous default ("claude-3-5-sonnet-latest") 404s on current
+    Anthropic accounts. Since every pipeline layer silently falls back to
+    rule-based processing on an LLM error, a bad model name here used to
+    degrade the whole brief (one-line summaries, weak categorization) with
+    no visible error anywhere. Keep this default a model that is verified to
+    work, and prefer setting PHARMA_LLM_MODEL explicitly per-environment.
     """
     try:
         import anthropic
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
+            logger.warning("[pharma-llm] ANTHROPIC_API_KEY not set; Anthropic client unavailable")
             return None
-        model = os.environ.get("PHARMA_LLM_MODEL", "claude-3-5-sonnet-latest")
+        model = os.environ.get("PHARMA_LLM_MODEL", "claude-sonnet-4-5-20250929")
         client = anthropic.Anthropic(api_key=api_key)
 
         def call_llm(system: str, user: str) -> str:
@@ -332,8 +343,10 @@ def _make_anthropic_client() -> Optional[Callable[[str, str], str]]:
             ]
             return "".join(parts)
 
+        logger.info("[pharma-llm] Using Anthropic model '%s'", model)
         return call_llm
-    except Exception:
+    except Exception as e:
+        logger.warning("[pharma-llm] Failed to build Anthropic client (%s: %s)", type(e).__name__, e)
         return None
 
 
