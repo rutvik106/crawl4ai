@@ -6,8 +6,14 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 
 from .extraction import _parse_json
-from .ontology import KEY_HIGHLIGHT_SCORE_THRESHOLD, detect_regulatory_status
+from .ontology import (
+    DEFAULT_DIMENSION_WEIGHTS,
+    KEY_HIGHLIGHT_SCORE_THRESHOLD,
+    detect_regulatory_status,
+)
 from .prompts import RELEVANCE_PROMPT, SYSTEM_PHARMA_EXPERT
+
+DIMENSIONS = tuple(DEFAULT_DIMENSION_WEIGHTS.keys())
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +29,17 @@ class RelevanceScorer:
         self,
         llm_client: Optional[Callable[[str, str], str]] = None,
         key_highlight_threshold: int = KEY_HIGHLIGHT_SCORE_THRESHOLD,
+        dimension_weights: Optional[Dict[str, int]] = None,
     ):
         self.llm_client = llm_client
         self.key_highlight_threshold = key_highlight_threshold
+        # Merge so a partial config (e.g. only "india_torrent_relevance" customized)
+        # still has sane defaults for the other dimensions.
+        self.dimension_weights = dict(DEFAULT_DIMENSION_WEIGHTS)
+        if dimension_weights:
+            self.dimension_weights.update(
+                {k: v for k, v in dimension_weights.items() if k in DEFAULT_DIMENSION_WEIGHTS}
+            )
 
     def score(
         self,
@@ -54,19 +68,36 @@ class RelevanceScorer:
     ) -> Dict[str, Any]:
         cats_str = ", ".join(categories)
         entities_str = ", ".join(f"{k}: {v}" for k, v in entities.items() if v)
+        w = self.dimension_weights
         user_prompt = RELEVANCE_PROMPT.format(
             title=title,
             text=text[:2500],
             categories=cats_str,
             entities=entities_str,
             event_type=event_type,
+            total_max=sum(w.values()),
+            event_maturity_max=w["event_maturity"],
+            evidence_strength_max=w["evidence_strength"],
+            strategic_significance_max=w["strategic_significance"],
+            commercial_implications_max=w["commercial_implications"],
+            india_torrent_relevance_max=w["india_torrent_relevance"],
+            key_highlight_threshold=self.key_highlight_threshold,
         )
         try:
             data = _parse_json(self.llm_client(SYSTEM_PHARMA_EXPERT, user_prompt))
-            total = max(0, min(100, int(data.get("total_score", 0))))
+            raw_breakdown = data.get("breakdown", {}) or {}
+            # Clamp each dimension to its configured max and recompute the total
+            # from the clamped breakdown, so a model that ignores the configured
+            # bounds (or is inconsistent between "total_score" and "breakdown")
+            # can't push the score outside what this deployment's config allows.
+            breakdown = {
+                dim: max(0, min(w[dim], int(raw_breakdown.get(dim, 0) or 0)))
+                for dim in DIMENSIONS
+            }
+            total = sum(breakdown.values())
             return {
                 "total_score": total,
-                "breakdown": data.get("breakdown", {}),
+                "breakdown": breakdown,
                 "score_rationale": data.get("score_rationale", ""),
                 "classification_confidence": self._confidence(data.get("classification_confidence")),
                 "model_key_recommendation": bool(data.get("is_key_highlight", False)),
@@ -77,6 +108,18 @@ class RelevanceScorer:
                 title, type(e).__name__, e,
             )
             return self._score_with_rules(title, text, categories, entities, event_type)
+
+    def _scale_to_configured_weights(self, breakdown: Dict[str, int]) -> Dict[str, int]:
+        """Proportionally rescale the rule-based heuristics (written against the
+        DEFAULT_DIMENSION_WEIGHTS caps) onto whatever weights are configured for
+        this deployment, so the relative behavior of the rubric is preserved
+        while the overall importance of each dimension stays adjustable."""
+        scaled = {}
+        for dim, raw in breakdown.items():
+            default_max = DEFAULT_DIMENSION_WEIGHTS.get(dim) or 1
+            configured_max = self.dimension_weights.get(dim, default_max)
+            scaled[dim] = max(0, min(configured_max, round(raw * configured_max / default_max)))
+        return scaled
 
     def _score_with_rules(
         self,
@@ -171,14 +214,14 @@ class RelevanceScorer:
         elif re.search(r"\b(?:zydus|sun pharma|cipla|dr\.? reddy|lupin|biocon|glenmark|alembic|aurobindo)\b", combined):
             india = 8
 
-        breakdown = {
+        breakdown = self._scale_to_configured_weights({
             "event_maturity": maturity,
             "evidence_strength": evidence,
             "strategic_significance": strategic,
             "commercial_implications": commercial,
             "india_torrent_relevance": india,
-        }
-        total = max(0, min(100, sum(breakdown.values())))
+        })
+        total = sum(breakdown.values())
         strongest = max(breakdown, key=breakdown.get)
         rationale = (
             f"{status.replace('_', ' ')}; strongest factor is "
@@ -243,13 +286,20 @@ class RelevanceScorer:
             breakdown = result.get("breakdown", {})
             # Immature-status items get a 10-point-lower bar than the configured
             # Key threshold, but only if they also clear strong evidence/strategic/
-            # India sub-scores - preserves the original 60-vs-50 relationship when
-            # the threshold is customized via /intelligence/config.
+            # India sub-scores. The sub-score bars are expressed as the same
+            # proportion of each dimension's DEFAULT max (70% / 60% / ~53%) so they
+            # stay meaningful if dimension weights are customized via
+            # /intelligence/config, instead of becoming impossible-to-clear or
+            # trivially-easy absolute numbers.
+            w = self.dimension_weights
+            evidence_bar = 0.70 * w["evidence_strength"]
+            strategic_bar = 0.60 * w["strategic_significance"]
+            india_bar = (8 / 15) * w["india_torrent_relevance"]
             return bool(
                 score >= (self.key_highlight_threshold - 10)
-                and int(breakdown.get("evidence_strength", 0)) >= 14
-                and int(breakdown.get("strategic_significance", 0)) >= 12
-                and int(breakdown.get("india_torrent_relevance", 0)) >= 8
+                and int(breakdown.get("evidence_strength", 0)) >= evidence_bar
+                and int(breakdown.get("strategic_significance", 0)) >= strategic_bar
+                and int(breakdown.get("india_torrent_relevance", 0)) >= india_bar
             )
 
         return score >= self.key_highlight_threshold

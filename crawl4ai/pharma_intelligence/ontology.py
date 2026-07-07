@@ -1,5 +1,6 @@
 """
-Pharma intelligence ontology: KPI weights, entity taxonomy, exclusion rules.
+Pharma intelligence ontology: relevance-scoring dimension weights, entity
+taxonomy, exclusion rules.
 
 This module is the single source of truth for all pharma domain knowledge
 used across the intelligence pipeline. Update here to affect all layers.
@@ -9,34 +10,19 @@ import re
 from typing import Dict, List, Set
 
 
-# ── Event Type KPI Weights (0–10 scale) ────────────────────────────────────────────
-KPI_WEIGHTS: Dict[str, int] = {
-    "new_molecule_approval":      10,
-    "new_indication_approval":    9,
-    "patent_expiry":              9,
-    "indian_competitor_activity": 8,
-    "phase3_success":             8,
-    "fast_track_designation":     7,
-    "breakthrough_therapy":       7,
-    "major_licensing_deal":       7,
-    "major_ma":                   7,
-    "orphan_drug_designation":    7,
-    "first_generic_launch":       6,
-    "biosimilar_launch":          6,
-    "manufacturing_expansion":    5,
-    "anda_approval":              5,
-    "label_expansion":            5,
-    "phase3_failure":             5,
-    "clinical_outcome_other":     4,
-    "non_critical_ma":            3,
-    "rare_disease_update":        3,
-    "conference_participation":   1,
-    "preclinical_data":           1,
-    "trial_initiation":           0,
-    "ind_approval":               0,
-    "cta_approval":               0,
-    "filing_acceptance":          0,
-    "priority_review":            0,
+# ── Relevance-scoring dimension weights (max points per dimension) ────────────────
+# These are the 5 dimensions RelevanceScorer actually evaluates (see scorer.py and
+# prompts.RELEVANCE_PROMPT). They replace the older per-event-type KPI_WEIGHTS
+# model (fixed weight per event "type", weight 0 = always excluded), which was
+# incompatible with the contextual scoring rework: that model would have hard-
+# excluded things like Priority Review regardless of evidence/strategic strength,
+# undoing the "never automatically exclude/include by category alone" fix.
+DEFAULT_DIMENSION_WEIGHTS: Dict[str, int] = {
+    "event_maturity": 30,
+    "evidence_strength": 20,
+    "strategic_significance": 20,
+    "commercial_implications": 15,
+    "india_torrent_relevance": 15,
 }
 
 

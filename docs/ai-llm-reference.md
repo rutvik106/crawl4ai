@@ -170,30 +170,32 @@ Returns `{ "exclude": bool, "reason": string, "confidence": float }`.
 
 ---
 
-### 3.5 `RELEVANCE_PROMPT` — Layer 4: KPI-Weighted Relevance Scoring
+### 3.5 `RELEVANCE_PROMPT` — Layer 4: Contextual Relevance Scoring
 
 **File:** `crawl4ai/pharma_intelligence/prompts.py` → called from `crawl4ai/pharma_intelligence/scorer.py`
 
-**Template variables:** `{title}`, `{categories}`, `{entities}`, `{event_type}`
+**Template variables:** `{title}`, `{categories}`, `{entities}`, `{event_type}`, plus the configured dimension bounds: `{total_max}`, `{event_maturity_max}`, `{evidence_strength_max}`, `{strategic_significance_max}`, `{commercial_implications_max}`, `{india_torrent_relevance_max}`, `{key_highlight_threshold}`
 
-**What it does:** Scores an article 0–100 across 5 dimensions:
+**What it does:** Scores an article across 5 dimensions, contextually — no category (Priority Review, M&A, Indian company, etc.) is automatically Key or automatically excluded on its own:
 
-| Dimension | Max Points | High-value examples |
+| Dimension | Default max points | High-value examples |
 |---|---|---|
-| Business impact magnitude | 30 | Major approval/M&A = 28–30 |
-| Therapy area importance | 20 | Oncology/GLP-1/Gene Therapy = 18–20 |
-| Indian market relevance | 20 | Direct CDSCO/Indian company action = 18–20 |
-| Novelty / first-in-class | 15 | First-ever in class = 13–15 |
-| Regulatory significance | 15 | Final approval = 13–15 |
+| Event maturity | 30 | Final approval, meaningful label expansion, pivotal outcome, completed transaction, withdrawal |
+| Clinical/evidence strength | 20 | Pivotal endpoints and quantified outcomes |
+| Strategic significance | 20 | First/only therapy, standard-of-care potential, major unmet need |
+| Commercial implications | 15 | Credible market expansion, exclusivity, pricing/patent impact (deal value alone isn't enough) |
+| India/Torrent relevance | 15 | Direct Indian market impact or a material Indian-company action |
 
-Returns `total_score`, `breakdown` dict, and `score_rationale` (one sentence).
+These 5 weights (and the Key Highlight threshold) are configurable per-deployment via `PUT /api/intelligence/config` → `dimension_weights`, and are exposed in the dashboard at `/intelligence/config`. Changing them re-parameterizes both the LLM prompt bounds above and the rule-based fallback (see below), so the two stay consistent.
+
+Returns `total_score`, `breakdown` dict, and `score_rationale` (one sentence). Each `breakdown` dimension is clamped server-side to its configured max and `total_score` is recomputed from the clamped breakdown, so a model response can't exceed the configured scale.
 
 **Downstream effect:**
-- `is_key_highlight` flag set when score ≥ threshold (default 60) OR article is in always-highlight categories
-- Articles with `total_score < min_score_threshold` (default 10) are demoted
-- All results are sorted: key highlights first, then by descending score
+- `is_key_highlight` is set when `total_score` ≥ the configured Key Highlight threshold (default 60), with a lower, evidence/strategic/India-gated bar for immature-status items (Priority Review, filing acceptance, designation) — see `RelevanceScorer._determine_key_highlight()`.
+- Articles with `total_score < min_score_threshold` (default 10) are demoted (never dropped).
+- All results are sorted: key highlights first, then by descending score.
 
-**Fallback:** `RelevanceScorer._score_with_rules()` — combines KPI weights from `ontology.KPI_WEIGHTS` with category-specific point values.
+**Fallback:** `RelevanceScorer._score_with_rules()` — regex/keyword heuristics compute each dimension on the *default* 30/20/20/15/15 scale, then `_scale_to_configured_weights()` proportionally rescales them onto whatever weights are actually configured.
 
 ---
 

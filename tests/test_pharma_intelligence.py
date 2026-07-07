@@ -589,6 +589,144 @@ def _fake_llm_fixed_score(total_score: int):
     return call
 
 
+# ── 7. Configurable dimension weights (replaces the old, incompatible KPI_WEIGHTS) ──
+# The KPI Weights config UI section used to expose a per-event-type weight model
+# (e.g. "Priority Review" pinned to weight 0 = always excluded) that directly
+# conflicts with the contextual scoring rework - it would silently override the
+# "never auto-include/exclude by category alone" fixes. It has been replaced by
+# configurable weights on the 5 real scoring dimensions the rubric evaluates.
+
+def test_default_dimension_weights_sum_to_the_original_100_point_scale():
+    from crawl4ai.pharma_intelligence.ontology import DEFAULT_DIMENSION_WEIGHTS
+    assert sum(DEFAULT_DIMENSION_WEIGHTS.values()) == 100
+    assert DEFAULT_DIMENSION_WEIGHTS == {
+        "event_maturity": 30,
+        "evidence_strength": 20,
+        "strategic_significance": 20,
+        "commercial_implications": 15,
+        "india_torrent_relevance": 15,
+    }
+
+
+def test_rule_based_breakdown_scales_to_custom_dimension_weights():
+    """Boosting india_torrent_relevance's max from 15 to 30 should roughly
+    double that dimension's contribution for an India-relevant article, while
+    leaving other dimensions (and the rubric's relative behavior) unchanged."""
+    title = "Torrent Pharma launches new drug in India"
+    text = "Torrent Pharma launches a new drug in the Indian market."
+    entities = EntityExtractor().extract(title, text)
+    categories = ArticleClassifier().classify(title, text, entities)["categories"]
+
+    default_result = RelevanceScorer().score(title, categories, entities, entities["event_type"], text)
+    boosted_result = RelevanceScorer(dimension_weights={"india_torrent_relevance": 30}).score(
+        title, categories, entities, entities["event_type"], text
+    )
+
+    assert boosted_result["breakdown"]["india_torrent_relevance"] == (
+        default_result["breakdown"]["india_torrent_relevance"] * 2
+    )
+    # Other dimensions are untouched by an india-only override.
+    for dim in ("event_maturity", "evidence_strength", "strategic_significance", "commercial_implications"):
+        assert boosted_result["breakdown"][dim] == default_result["breakdown"][dim]
+    assert boosted_result["total_score"] > default_result["total_score"]
+
+
+def test_boosting_india_relevance_can_recover_a_torrent_relevant_miss():
+    """Concrete regression: Selpercatinib's India launch (from the Daily Bites
+    benchmark set) scores just under the Key threshold at default weights but
+    clears it once India/Torrent relevance is weighted more heavily - proving
+    the new config knob has real effect, unlike the KPI Weights section it
+    replaces."""
+    article = PharmaArticle(
+        title="Eli Lilly launches selpercatinib in India after CDSCO approval",
+        text=(
+            "Eli Lilly launched selpercatinib in India post CDSCO approval for "
+            "RET-altered locally advanced/metastatic solid tumours including NSCLC "
+            "and thyroid cancers. Oral targeted therapy demonstrating rapid durable "
+            "responses including CNS activity. Globally approved selective RET "
+            "inhibitor; now introduced in India."
+        ),
+    )
+    default_item = PharmaPipeline(llm_client=None).process([article])[0]
+    assert default_item.is_key_highlight is False
+    assert default_item.relevance_score == 49
+
+    boosted_item = PharmaPipeline(
+        llm_client=None, dimension_weights={"india_torrent_relevance": 30}
+    ).process([article])[0]
+    assert boosted_item.is_key_highlight is True
+
+
+def test_config_endpoint_exposes_dimension_weights_and_drops_legacy_keys(monkeypatch):
+    """/intelligence/config must serve the new dimension_weights default and
+    must never resurface the old kpi_weights / bundle_configs keys, even if an
+    older stored row still has them (pre-migration DB state)."""
+    from api.routers import intelligence
+
+    monkeypatch.setattr(intelligence, "_ensure_tables", lambda: None)
+
+    class _FakeCursor:
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def execute(self, *a, **k):
+            pass
+        def fetchone(self):
+            return {"config": {"kpi_weights": {"priority_review": 0}, "bundle_configs": {"a": 1}}}
+
+    class _FakeConn:
+        def cursor(self, **k):
+            return _FakeCursor()
+        def close(self):
+            pass
+
+    monkeypatch.setattr(intelligence, "_connect", lambda: _FakeConn())
+
+    cfg = intelligence._get_config()
+    assert "kpi_weights" not in cfg
+    assert "bundle_configs" not in cfg
+    assert cfg["dimension_weights"] == {
+        "event_maturity": 30, "evidence_strength": 20, "strategic_significance": 20,
+        "commercial_implications": 15, "india_torrent_relevance": 15,
+    }
+
+
+def test_process_endpoint_reads_dimension_weights_from_config(monkeypatch):
+    from api.routers import intelligence
+
+    monkeypatch.setattr(
+        intelligence, "_get_config",
+        lambda: {
+            "min_score_threshold": 0,
+            "key_highlight_score_threshold": 60,
+            "dimension_weights": {"india_torrent_relevance": 30},
+        },
+    )
+    monkeypatch.setattr(intelligence, "_make_llm_client", lambda: None)
+    monkeypatch.setattr(intelligence, "_store_result", lambda *a, **k: None)
+
+    captured_kwargs = {}
+    original_init = intelligence.PharmaPipeline.__init__
+
+    def capturing_init(self, *args, **kwargs):
+        captured_kwargs.update(kwargs)
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(intelligence.PharmaPipeline, "__init__", capturing_init)
+
+    payload = intelligence.ProcessRequest(
+        date="2026-01-01",
+        articles=[intelligence.ArticleInput(
+            title="Torrent Pharma launches new drug in India",
+            text="Torrent Pharma launches a new drug in the Indian market.",
+        )],
+    )
+    asyncio.run(intelligence.process_articles(payload, current_user={"username": "test"}))
+
+    assert captured_kwargs.get("dimension_weights") == {"india_torrent_relevance": 30}
+
+
 def test_relevance_scorer_respects_custom_threshold():
     title = "FDA approves ExampleDrug for a rare condition"
     text = "The FDA approved ExampleDrug for a rare condition based on clinical data."

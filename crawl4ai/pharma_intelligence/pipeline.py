@@ -105,15 +105,21 @@ class PharmaPipeline:
         min_score_threshold: int = 10,
         run_deduplication: bool = True,
         key_highlight_threshold: int = KEY_HIGHLIGHT_SCORE_THRESHOLD,
+        dimension_weights: Optional[Dict[str, int]] = None,
     ):
         self.llm_client = llm_client
         self.min_score = min_score_threshold
         self.run_dedup = run_deduplication
         self.key_highlight_threshold = key_highlight_threshold
+        self.dimension_weights = dimension_weights
         self.extractor = EntityExtractor(llm_client)
         self.classifier = ArticleClassifier(llm_client)
         self.filter_ = ExclusionFilter(llm_client)
-        self.scorer = RelevanceScorer(llm_client, key_highlight_threshold=key_highlight_threshold)
+        self.scorer = RelevanceScorer(
+            llm_client,
+            key_highlight_threshold=key_highlight_threshold,
+            dimension_weights=dimension_weights,
+        )
         self.deduplicator = Deduplicator(llm_client)
         self.summarizer = LeadershipSummarizer(llm_client)
         self.formatter = PharmaEmailFormatter()

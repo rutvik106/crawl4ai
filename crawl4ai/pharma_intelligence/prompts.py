@@ -108,19 +108,23 @@ Categories: {categories}
 Extracted Entities: {entities}
 Event Type: {event_type}
 
-Evaluate five dimensions (total 0-100):
-- Event maturity (0-30): final approval, meaningful label expansion, pivotal
-  outcome, completed strategic transaction, or withdrawal outranks filing,
-  Priority Review, designation, formulation update, and early research.
-- Clinical/evidence strength (0-20): pivotal endpoints and quantified outcomes
-  outrank unquantified or early-stage evidence.
-- Strategic significance (0-20): first/only therapy, standard-of-care potential,
-  major unmet need, material competitive disruption, or portfolio transformation.
-- Commercial implications (0-15): credible market expansion, revenue exposure,
-  exclusivity, pricing/patent impact, or mature assets. Deal headline value alone
-  is not sufficient, especially for preclinical/early-stage programs.
-- India/Torrent relevance (0-15): direct Indian market impact, Torrent relevance,
-  or a material Indian-company action. Indian involvement alone is not sufficient.
+Evaluate five dimensions (total 0-{total_max}):
+- Event maturity (0-{event_maturity_max}): final approval, meaningful label
+  expansion, pivotal outcome, completed strategic transaction, or withdrawal
+  outranks filing, Priority Review, designation, formulation update, and early
+  research.
+- Clinical/evidence strength (0-{evidence_strength_max}): pivotal endpoints and
+  quantified outcomes outrank unquantified or early-stage evidence.
+- Strategic significance (0-{strategic_significance_max}): first/only therapy,
+  standard-of-care potential, major unmet need, material competitive disruption,
+  or portfolio transformation.
+- Commercial implications (0-{commercial_implications_max}): credible market
+  expansion, revenue exposure, exclusivity, pricing/patent impact, or mature
+  assets. Deal headline value alone is not sufficient, especially for
+  preclinical/early-stage programs.
+- India/Torrent relevance (0-{india_torrent_relevance_max}): direct Indian
+  market impact, Torrent relevance, or a material Indian-company action. Indian
+  involvement alone is not sufficient.
 
 Decision guardrails:
 - Routine generic/tentative approvals normally belong in Other News unless they
@@ -129,7 +133,8 @@ Decision guardrails:
   News unless several strong amplifiers make the event strategically exceptional.
 - Do not call a review milestone a final approval.
 - Do not promote every FDA/EMA event, Indian-company item, M&A, or licensing deal.
-- A Key Highlight should normally score at least 60 and have a concrete rationale.
+- A Key Highlight should normally score at least {key_highlight_threshold} (out
+  of {total_max}) and have a concrete rationale.
 
 Return JSON:
 {{

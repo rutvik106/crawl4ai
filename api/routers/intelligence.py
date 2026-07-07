@@ -35,8 +35,8 @@ from crawl4ai.pharma_intelligence import (
     is_within_last_24h,
 )
 from crawl4ai.pharma_intelligence.ontology import (
+    DEFAULT_DIMENSION_WEIGHTS,
     KEY_HIGHLIGHT_SCORE_THRESHOLD,
-    KPI_WEIGHTS,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,16 +48,9 @@ DATABASE_URL = os.getenv(
 )
 
 DEFAULT_CONFIG: Dict[str, Any] = {
-    "kpi_weights": KPI_WEIGHTS,
+    "dimension_weights": dict(DEFAULT_DIMENSION_WEIGHTS),
     "key_highlight_score_threshold": KEY_HIGHLIGHT_SCORE_THRESHOLD,
     "min_score_threshold": 10,
-    "bundle_configs": {
-        "regulatory_agencies": {"enabled": True, "kpi_focus": ["approval", "label_expansion"]},
-        "pharma_news": {"enabled": True, "kpi_focus": ["ma", "licensing", "clinical_outcome"]},
-        "clinical_trials": {"enabled": True, "kpi_focus": ["clinical_outcome"]},
-        "patent_ip": {"enabled": True, "kpi_focus": ["patent"]},
-        "corporate_pr": {"enabled": True, "kpi_focus": ["ma", "licensing"]},
-    },
 }
 
 _COMPLETED_STATUSES = ("completed", "completed_empty")
@@ -149,9 +142,13 @@ def _get_config() -> Dict[str, Any]:
         return dict(DEFAULT_CONFIG)
     cfg = row["config"]
     stored = cfg if isinstance(cfg, dict) else json.loads(cfg)
-    # Merge with defaults so new keys (like bundle_configs) are always present
+    # Merge with defaults so new keys are always present, and drop legacy keys
+    # (kpi_weights / bundle_configs) that older stored configs may still carry -
+    # they predate the contextual-scoring rework and are no longer read anywhere.
     merged = dict(DEFAULT_CONFIG)
     merged.update(stored)
+    merged.pop("kpi_weights", None)
+    merged.pop("bundle_configs", None)
     return merged
 
 
@@ -369,10 +366,9 @@ class ProcessRequest(BaseModel):
 
 
 class KPIConfigUpdate(BaseModel):
-    kpi_weights: Optional[Dict[str, int]] = None
+    dimension_weights: Optional[Dict[str, int]] = None
     key_highlight_score_threshold: Optional[int] = None
     min_score_threshold: Optional[int] = None
-    bundle_configs: Optional[Dict[str, Any]] = None
 
 
 # ── Endpoints ────────────────────────────────────────────────
@@ -417,12 +413,14 @@ async def process_articles(
     key_highlight_threshold = pharma_cfg.get(
         "key_highlight_score_threshold", KEY_HIGHLIGHT_SCORE_THRESHOLD
     )
+    dimension_weights = pharma_cfg.get("dimension_weights", DEFAULT_DIMENSION_WEIGHTS)
 
     pipeline = PharmaPipeline(
         llm_client=_make_llm_client(),
         min_score_threshold=min_score,
         run_deduplication=True,
         key_highlight_threshold=key_highlight_threshold,
+        dimension_weights=dimension_weights,
     )
 
     results = await asyncio.to_thread(pipeline.process, articles)
@@ -455,14 +453,17 @@ async def update_config(
     current_user: dict = Depends(get_current_user),
 ):
     current = await asyncio.to_thread(_get_config)
-    if payload.kpi_weights is not None:
-        current["kpi_weights"] = payload.kpi_weights
+    if payload.dimension_weights is not None:
+        # Merge rather than replace so a partial update (e.g. only adjusting
+        # "india_torrent_relevance") doesn't zero out the other dimensions.
+        current["dimension_weights"] = {
+            **current.get("dimension_weights", DEFAULT_DIMENSION_WEIGHTS),
+            **payload.dimension_weights,
+        }
     if payload.key_highlight_score_threshold is not None:
         current["key_highlight_score_threshold"] = payload.key_highlight_score_threshold
     if payload.min_score_threshold is not None:
         current["min_score_threshold"] = payload.min_score_threshold
-    if payload.bundle_configs is not None:
-        current["bundle_configs"] = payload.bundle_configs
     await asyncio.to_thread(_store_config, current)
     return JSONResponse({"status": "ok", "config": current})
 
