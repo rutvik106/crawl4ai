@@ -12,6 +12,8 @@ Focus areas (driven by client feedback):
                              trace in the logs).
 """
 
+import asyncio
+import json
 import logging
 import os
 import sys
@@ -566,6 +568,94 @@ def test_exclusion_filter_llm_failure_is_logged(caplog):
         )
     assert reason
     assert any("defaulting to include" in r.message for r in caplog.records)
+
+
+# ── 6. Configurable Key Highlight threshold ────────────────────────────────────
+# Regression coverage for /intelligence/config's "Key Highlight threshold" field,
+# which used to be saved to the database but silently ignored - the pipeline
+# always used the hardcoded KEY_HIGHLIGHT_SCORE_THRESHOLD constant regardless of
+# what was configured. It's now threaded through PharmaPipeline -> RelevanceScorer,
+# so changing it from the config UI actually changes behavior.
+
+def _fake_llm_fixed_score(total_score: int):
+    def call(system, user):
+        return (
+            f'{{"total_score": {total_score}, "breakdown": {{"event_maturity": 30,'
+            f' "evidence_strength": 10, "strategic_significance": 10,'
+            f' "commercial_implications": 3, "india_torrent_relevance": 2}},'
+            f' "score_rationale": "test", "is_key_highlight": false,'
+            f' "classification_confidence": 0.8}}'
+        )
+    return call
+
+
+def test_relevance_scorer_respects_custom_threshold():
+    title = "FDA approves ExampleDrug for a rare condition"
+    text = "The FDA approved ExampleDrug for a rare condition based on clinical data."
+    entities = {"regulatory_status": "final_approval", "event_type": "approval"}
+    llm = _fake_llm_fixed_score(55)
+
+    default_result = RelevanceScorer(llm_client=llm).score(title, [], entities, "approval", text)
+    assert default_result["total_score"] == 55
+    assert default_result["is_key_highlight"] is False  # 55 < default threshold of 60
+
+    lowered_result = RelevanceScorer(llm_client=llm, key_highlight_threshold=50).score(
+        title, [], entities, "approval", text
+    )
+    assert lowered_result["is_key_highlight"] is True  # 55 >= 50
+
+
+def test_pipeline_threads_key_highlight_threshold_to_scorer():
+    article = PharmaArticle(
+        title="FDA approves ExampleDrug for a rare condition",
+        text="The FDA approved ExampleDrug for a rare condition based on clinical data.",
+    )
+    llm = _fake_llm_fixed_score(55)
+
+    default_item = PharmaPipeline(llm_client=llm, min_score_threshold=0).process([article])[0]
+    assert default_item.is_key_highlight is False
+
+    lowered_item = PharmaPipeline(
+        llm_client=llm, min_score_threshold=0, key_highlight_threshold=50
+    ).process([article])[0]
+    assert lowered_item.is_key_highlight is True
+
+
+def test_process_endpoint_reads_key_highlight_threshold_from_config(monkeypatch):
+    """The /intelligence/process endpoint must actually read
+    key_highlight_score_threshold from the stored config and pass it to
+    PharmaPipeline - it used to be fetched into pharma_cfg and then never
+    used, so the config UI's "Key Highlight threshold" field was a no-op."""
+    from api.routers import intelligence
+
+    monkeypatch.setattr(
+        intelligence, "_get_config",
+        lambda: {"min_score_threshold": 0, "key_highlight_score_threshold": 50},
+    )
+    monkeypatch.setattr(intelligence, "_make_llm_client", lambda: _fake_llm_fixed_score(55))
+    monkeypatch.setattr(intelligence, "_store_result", lambda *a, **k: None)
+
+    captured_kwargs = {}
+    original_init = intelligence.PharmaPipeline.__init__
+
+    def capturing_init(self, *args, **kwargs):
+        captured_kwargs.update(kwargs)
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(intelligence.PharmaPipeline, "__init__", capturing_init)
+
+    payload = intelligence.ProcessRequest(
+        date="2026-01-01",
+        articles=[intelligence.ArticleInput(
+            title="FDA approves ExampleDrug for a rare condition",
+            text="The FDA approved ExampleDrug for a rare condition based on clinical data.",
+        )],
+    )
+    response = asyncio.run(intelligence.process_articles(payload, current_user={"username": "test"}))
+
+    assert captured_kwargs.get("key_highlight_threshold") == 50
+    body = json.loads(response.body)
+    assert body["key_highlights_count"] == 1  # 55 >= configured threshold of 50
 
 
 def test_deduplicator_llm_failure_is_logged(caplog):

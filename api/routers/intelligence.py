@@ -414,11 +414,15 @@ async def process_articles(
 
     pharma_cfg = await asyncio.to_thread(_get_config)
     min_score = pharma_cfg.get("min_score_threshold", 10)
+    key_highlight_threshold = pharma_cfg.get(
+        "key_highlight_score_threshold", KEY_HIGHLIGHT_SCORE_THRESHOLD
+    )
 
     pipeline = PharmaPipeline(
         llm_client=_make_llm_client(),
         min_score_threshold=min_score,
         run_deduplication=True,
+        key_highlight_threshold=key_highlight_threshold,
     )
 
     results = await asyncio.to_thread(pipeline.process, articles)

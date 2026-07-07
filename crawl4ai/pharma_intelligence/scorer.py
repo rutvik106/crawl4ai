@@ -19,8 +19,13 @@ class RelevanceScorer:
     Key Highlight or Other News and records an auditable rationale.
     """
 
-    def __init__(self, llm_client: Optional[Callable[[str, str], str]] = None):
+    def __init__(
+        self,
+        llm_client: Optional[Callable[[str, str], str]] = None,
+        key_highlight_threshold: int = KEY_HIGHLIGHT_SCORE_THRESHOLD,
+    ):
         self.llm_client = llm_client
+        self.key_highlight_threshold = key_highlight_threshold
 
     def score(
         self,
@@ -184,7 +189,7 @@ class RelevanceScorer:
             "breakdown": breakdown,
             "score_rationale": rationale,
             "classification_confidence": 0.7,
-            "model_key_recommendation": total >= KEY_HIGHLIGHT_SCORE_THRESHOLD,
+            "model_key_recommendation": total >= self.key_highlight_threshold,
         }
 
     @staticmethod
@@ -236,11 +241,15 @@ class RelevanceScorer:
         immature = {"priority_review", "filing_acceptance", "designation"}
         if status in immature:
             breakdown = result.get("breakdown", {})
+            # Immature-status items get a 10-point-lower bar than the configured
+            # Key threshold, but only if they also clear strong evidence/strategic/
+            # India sub-scores - preserves the original 60-vs-50 relationship when
+            # the threshold is customized via /intelligence/config.
             return bool(
-                score >= 50
+                score >= (self.key_highlight_threshold - 10)
                 and int(breakdown.get("evidence_strength", 0)) >= 14
                 and int(breakdown.get("strategic_significance", 0)) >= 12
                 and int(breakdown.get("india_torrent_relevance", 0)) >= 8
             )
 
-        return score >= KEY_HIGHLIGHT_SCORE_THRESHOLD
+        return score >= self.key_highlight_threshold

@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 from .extraction import EntityExtractor
 from .classifier import ArticleClassifier
 from .filter import ExclusionFilter
+from .ontology import KEY_HIGHLIGHT_SCORE_THRESHOLD
 from .scorer import RelevanceScorer
 from .deduplicator import Deduplicator
 from .summarizer import LeadershipSummarizer
@@ -103,14 +104,16 @@ class PharmaPipeline:
         llm_client: Optional[Callable[[str, str], str]] = None,
         min_score_threshold: int = 10,
         run_deduplication: bool = True,
+        key_highlight_threshold: int = KEY_HIGHLIGHT_SCORE_THRESHOLD,
     ):
         self.llm_client = llm_client
         self.min_score = min_score_threshold
         self.run_dedup = run_deduplication
+        self.key_highlight_threshold = key_highlight_threshold
         self.extractor = EntityExtractor(llm_client)
         self.classifier = ArticleClassifier(llm_client)
         self.filter_ = ExclusionFilter(llm_client)
-        self.scorer = RelevanceScorer(llm_client)
+        self.scorer = RelevanceScorer(llm_client, key_highlight_threshold=key_highlight_threshold)
         self.deduplicator = Deduplicator(llm_client)
         self.summarizer = LeadershipSummarizer(llm_client)
         self.formatter = PharmaEmailFormatter()
