@@ -44,6 +44,7 @@ class PharmaIntelligenceResult:
     therapy_area: Optional[str] = None
     excluded: bool = False
     exclusion_reason: str = ""
+    counterparties: List[str] = field(default_factory=list)
     relevance_score: int = 0
     score_breakdown: Dict[str, Any] = field(default_factory=dict)
     score_rationale: str = ""
@@ -78,6 +79,7 @@ class PharmaIntelligenceResult:
             "therapy_area": self.therapy_area,
             "excluded": self.excluded,
             "exclusion_reason": self.exclusion_reason,
+            "counterparties": self.counterparties,
             "relevance_score": self.relevance_score,
             "score_breakdown": self.score_breakdown,
             "score_rationale": self.score_rationale,
@@ -123,15 +125,24 @@ class PharmaPipeline:
         self.deduplicator = Deduplicator(llm_client)
         self.summarizer = LeadershipSummarizer(llm_client)
         self.formatter = PharmaEmailFormatter()
+        # Stats from the most recent process() call (for API reporting).
+        self.last_run_stats: Dict[str, int] = {}
 
     def process(self, articles: List[PharmaArticle]) -> List[PharmaIntelligenceResult]:
         logger.info("[PharmaPipeline] Processing %d articles", len(articles))
-        # Never-drop policy: every article is retained so coverage is never lost.
-        # Low-value / filtered items are demoted into "Other News" instead of removed.
+        # Client scope policy: articles matching an out-of-scope category
+        # (manufacturing/facility, leadership changes, market forecasts, webinar
+        # or "will-present" announcements, trial-phase entry, regulatory-planning)
+        # are hard-excluded and dropped. Low-value-but-in-scope items are only
+        # demoted (kept, ranked lower) rather than removed.
         processed: List[Dict[str, Any]] = []
         demoted_count = 0
+        excluded_count = 0
         for article in articles:
             item = self._process_single(article)
+            if item.excluded:
+                excluded_count += 1
+                continue
             if item.demoted:
                 demoted_count += 1
             item_dict = item.to_dict()
@@ -140,13 +151,23 @@ class PharmaPipeline:
             item_dict["text"] = article.text or article.summary or article.title
             processed.append(item_dict)
         logger.info(
-            "[PharmaPipeline] %d articles retained (%d demoted to Other News)",
-            len(processed), demoted_count,
+            "[PharmaPipeline] %d articles retained (%d demoted, %d excluded out-of-scope)",
+            len(processed), demoted_count, excluded_count,
         )
+        retained_before_dedup = len(processed)
         if self.run_dedup and processed:
             processed = self.deduplicator.cluster(processed)
+        consolidated_count = retained_before_dedup - len(processed)
         results = [self._summarize_item(d) for d in processed]
+        # Single flat table: rank by relevance score, with key highlights leading.
         results.sort(key=lambda r: (not r.is_key_highlight, -r.relevance_score))
+        self.last_run_stats = {
+            "input_count": len(articles),
+            "retained_count": len(results),
+            "demoted_count": demoted_count,
+            "excluded_count": excluded_count,
+            "consolidated_count": consolidated_count,
+        }
         return results
 
     def _process_single(self, article: PharmaArticle) -> PharmaIntelligenceResult:
@@ -190,9 +211,14 @@ class PharmaPipeline:
             result.is_key_highlight = score_result["is_key_highlight"]
         except Exception as e:
             logger.warning("Scoring failed for '%s': %s", article.title, e)
+        # Populate deal counterparties (for "M&A - Company A & Company B" labels).
+        cps = result.entities.get("counterparties")
+        if isinstance(cps, list):
+            result.counterparties = [str(c).strip() for c in cps if str(c).strip()]
         if filter_demote:
-            result.demoted = True
-            result.demotion_reason = filter_reason
+            # Filter matches are out-of-scope categories → hard exclude (dropped).
+            result.excluded = True
+            result.exclusion_reason = filter_reason
         elif result.relevance_score < self.min_score:
             result.demoted = True
             result.demotion_reason = (

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional, Tuple
 
-from .ontology import is_hard_excluded, has_strong_include_signal
+from .ontology import is_hard_excluded, has_strong_include_signal, is_scope_override
 from .prompts import SYSTEM_PHARMA_EXPERT, EXCLUSION_PROMPT
 from .extraction import _parse_json
 
@@ -18,10 +18,15 @@ class ExclusionFilter:
 
     def should_exclude(self, title: str, text: str, event_type: str = "other") -> Tuple[bool, str]:
         combined = f"{title} {text[:1000]}"
+        # Scope-override categories are out of scope even when they contain
+        # deal/acquisition/collaboration keywords, so they are checked BEFORE the
+        # strong-include short-circuit (e.g. a manufacturing *site* acquisition).
+        if is_scope_override(combined):
+            return True, "Out of client scope (manufacturing/facility/leadership/market-forecast/webinar/AI-only)"
         if has_strong_include_signal(combined):
-            return False, "Strong include signal detected (approval/Phase III/M&A/designation)"
+            return False, "Strong include signal detected (approval/Phase III/M&A/designation/CHMP)"
         if is_hard_excluded(combined):
-            return True, "Matched hard exclusion pattern (IND/CTA/preclinical/conference/Phase I-II)"
+            return True, "Matched hard exclusion pattern (IND/CTA/preclinical/conference/phase entry/reg-planning)"
         zero_kpi_types = {"ind_approval", "cta_approval", "filing_acceptance",
                           "trial_initiation", "conference", "preclinical"}
         if event_type in zero_kpi_types:

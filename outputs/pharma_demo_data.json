@@ -1,49 +1,114 @@
 {
-  "total_articles_processed": 10,
-  "key_highlights_count": 6,
-  "other_news_count": 4,
+  "total_articles_processed": 9,
+  "key_highlights_count": 2,
+  "other_news_count": 7,
   "key_highlights": [
     {
-      "title": "Lupin gets orphan drug designation for pediatric rare disease candidate",
-      "headline": "Lupin gets orphan drug designation for pediatric rare disease candidate",
+      "title": "CDSCO approves Zydus Lifesciences' generic heart failure drug",
+      "headline": "CDSCO approves Zydus Lifesciences' generic heart failure drug",
+      "particular": "CDSCO approves Zydus Lifesciences' generic heart failure drug",
+      "asset_label": "CDSCO approves Zydus Lifesciences' generic heart failure drug",
       "molecule": null,
+      "brand_name": null,
+      "counterparties": [],
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "CDSCO Approval",
+        "First Generic Launch",
+        "Cardiovascular",
+        "Indian Market"
+      ],
+      "primary_category": "CDSCO Approval",
+      "therapy_area": "Cardiovascular",
+      "summary": "The Central Drugs Standard Control Organization (CDSCO) has approved Zydus Lifesciences' generic version of sacubitril/valsartan, a combination drug used in the treatment of heart failure. This approval marks a significant milestone for the Indian pharmaceutical market as it is the first generic approval for this molecule in India. The drug, originally marketed by Novartis as Entresto, had global sales of over $5 billion in 2024. Zydus expects to launch the product within the next 60 days.",
+      "key_points": [
+        "Regulatory action involving CDSCO.",
+        "The drug, originally marketed by Novartis as Entresto, had global sales of over $5 billion in 2024.",
+        "Zydus expects to launch the product within the next 60 days."
+      ],
+      "event_update": "The Central Drugs Standard Control Organization (CDSCO) has approved Zydus Lifesciences' generic version of sacubitril/valsartan, a combination drug used in the treatment of heart failure.",
+      "evidence": "The drug, originally marketed by Novartis as Entresto, had global sales of over $5 billion in 2024.",
+      "regulatory_status": "Final approval - CDSCO.",
+      "clinical_stage": null,
+      "strategic_significance": "This approval marks a significant milestone for the Indian pharmaceutical market as it is the first generic approval for this molecule in India.",
+      "commercial_implications": "This approval marks a significant milestone for the Indian pharmaceutical market as it is the first generic approval for this molecule in India.",
+      "key_metric": "$5 billion",
+      "relevance_score": 71,
+      "score_rationale": "final approval; strongest factor is event maturity (30 points).",
+      "classification_confidence": 0.7,
+      "is_key_highlight": true,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://cdsco.gov.in/approvals/2025/zydus-sacubitril-valsartan",
+      "source": "CDSCO",
+      "sources": [
+        "CDSCO"
+      ],
+      "is_consolidated": false,
+      "published_at": "2025-06-18"
+    },
+    {
+      "title": "FDA approves AstraZeneca's rare disease gene therapy",
+      "headline": "FDA approves AstraZeneca's rare disease gene therapy",
+      "particular": "FDA approves AstraZeneca's rare disease gene therapy",
+      "asset_label": "FDA approves AstraZeneca's rare disease gene therapy",
+      "molecule": null,
+      "brand_name": null,
+      "counterparties": [],
       "company": null,
       "indication": null,
       "geography": null,
       "categories": [
         "FDA Approval",
-        "Clinical Trial",
-        "Orphan Drug Designation",
+        "EMA Approval",
+        "CDSCO Approval",
+        "Neurology",
         "Rare Disease",
+        "Gene Therapy",
         "Indian Market"
       ],
       "primary_category": "FDA Approval",
-      "therapy_area": "Rare Disease",
-      "summary": "Lupin Limited has announced that its novel small molecule candidate for the treatment of Duchenne muscular dystrophy has received orphan drug designation from the FDA. The designation provides Lupin with 7 years of market exclusivity upon approval and waiver of FDA application fees. The candidate is currently in Phase II clinical trials with 48 patients enrolled across 12 sites in the US. Top-line results are expected in Q1 2026.",
+      "therapy_area": "Neurology",
+      "summary": "Food and Drug Administration has approved AstraZeneca's gene therapy for the treatment of metachromatic leukodystrophy (MLD), a rare and fatal inherited neurological disorder. The therapy, priced at $2.8 million per treatment, is the second gene therapy approved for MLD globally. The approval was based on data from 31 patients showing sustained clinical benefit at 3-year follow-up. AstraZeneca plans to seek EMA and CDSCO approvals in the next 6 months.",
       "key_points": [
         "Regulatory action involving FDA.",
-        "Clinical stage: Phase II.",
-        "The designation provides Lupin with 7 years of market exclusivity upon approval and waiver of FDA application fees.",
-        "The candidate is currently in Phase II clinical trials with 48 patients enrolled across 12 sites in the US."
+        "The therapy, priced at $2.8 million per treatment, is the second gene therapy approved for MLD globally.",
+        "The approval was based on data from 31 patients showing sustained clinical benefit at 3-year follow-up.",
+        "AstraZeneca plans to seek EMA and CDSCO approvals in the next 6 months."
       ],
-      "key_metric": null,
-      "relevance_score": 68,
+      "event_update": "Food and Drug Administration has approved AstraZeneca's gene therapy for the treatment of metachromatic leukodystrophy (MLD), a rare and fatal inherited neurological disorder.",
+      "evidence": "The therapy, priced at $2.8 million per treatment, is the second gene therapy approved for MLD globally.",
+      "regulatory_status": "Final approval - FDA.",
+      "clinical_stage": null,
+      "strategic_significance": null,
+      "commercial_implications": "The therapy, priced at $2.8 million per treatment, is the second gene therapy approved for MLD globally.",
+      "key_metric": "$2.8 million",
+      "relevance_score": 67,
+      "score_rationale": "final approval; strongest factor is event maturity (30 points).",
+      "classification_confidence": 0.7,
       "is_key_highlight": true,
       "demoted": false,
       "demotion_reason": "",
-      "url": "https://lupin.com/media/fda-orphan-drug-designation-2025",
-      "source": "Lupin",
+      "url": "https://fda.gov/news-events/press-announcements/fda-approves-mld-gene-therapy",
+      "source": "FDA",
       "sources": [
-        "FDA",
-        "Lupin"
+        "FDA"
       ],
-      "is_consolidated": true,
-      "published_at": "2025-06-14"
-    },
+      "is_consolidated": false,
+      "published_at": "2025-06-15"
+    }
+  ],
+  "other_news": [
     {
       "title": "Glenmark gets USFDA approval for dermatology product",
       "headline": "Glenmark gets USFDA approval for dermatology product",
+      "particular": "Glenmark gets USFDA approval for dermatology product",
+      "asset_label": "Glenmark gets USFDA approval for dermatology product",
       "molecule": null,
+      "brand_name": null,
+      "counterparties": [],
       "company": null,
       "indication": null,
       "geography": null,
@@ -57,9 +122,17 @@
       "key_points": [
         "The product is the generic equivalent of a branded product with annual US sales of approximately $120 million."
       ],
+      "event_update": "Glenmark Pharmaceuticals has received approval from the USFDA for its topical cream for the treatment of inflammatory skin conditions.",
+      "evidence": "The product is the generic equivalent of a branded product with annual US sales of approximately $120 million.",
+      "regulatory_status": "Final approval.",
+      "clinical_stage": null,
+      "strategic_significance": null,
+      "commercial_implications": "The product is the generic equivalent of a branded product with annual US sales of approximately $120 million.",
       "key_metric": "$120 million",
-      "relevance_score": 68,
-      "is_key_highlight": true,
+      "relevance_score": 56,
+      "score_rationale": "final approval; strongest factor is event maturity (30 points).",
+      "classification_confidence": 0.7,
+      "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
       "url": "https://glenmarkpharma.com/usfda-dermatology-approval",
@@ -71,46 +144,13 @@
       "published_at": "2025-06-16"
     },
     {
-      "title": "Sun Pharma gets CDSCO nod for novel oncology biosimilar",
-      "headline": "Sun Pharma gets CDSCO nod for novel oncology biosimilar",
-      "molecule": null,
-      "company": null,
-      "indication": null,
-      "geography": null,
-      "categories": [
-        "CDSCO Approval",
-        "Manufacturing",
-        "Biosimilar",
-        "Oncology",
-        "Indian Market"
-      ],
-      "primary_category": "CDSCO Approval",
-      "therapy_area": "Oncology",
-      "summary": "Sun Pharmaceutical Industries has received approval from CDSCO for its trastuzumab biosimilar, indicated for HER2-positive breast cancer. The approval is based on comprehensive analytical, preclinical, and clinical data including a Phase III equivalence study. This is Sun Pharma's third oncology biosimilar approval in the past 18 months. The company has invested over ₹200 crore in developing the manufacturing facility in Gujarat.",
-      "key_points": [
-        "Regulatory action involving CDSCO.",
-        "Clinical stage: Phase III.",
-        "Sun Pharmaceutical Industries has received approval from CDSCO for its trastuzumab biosimilar, indicated for HER2-positive breast cancer.",
-        "This is Sun Pharma's third oncology biosimilar approval in the past 18 months."
-      ],
-      "key_metric": null,
-      "relevance_score": 64,
-      "is_key_highlight": true,
-      "demoted": false,
-      "demotion_reason": "",
-      "url": "https://sunpharma.com/media/cdsco-trastuzumab-approval",
-      "source": "Sun Pharma",
-      "sources": [
-        "CDSCO",
-        "Sun Pharma"
-      ],
-      "is_consolidated": true,
-      "published_at": "2025-06-17"
-    },
-    {
       "title": "Biocon Biologics reports Phase III data for insulin biosimilar",
       "headline": "Biocon Biologics reports Phase III data for insulin biosimilar",
+      "particular": "Biocon Biologics reports Phase III data for insulin biosimilar",
+      "asset_label": "Biocon Biologics reports Phase III data for insulin biosimilar",
       "molecule": null,
+      "brand_name": null,
+      "counterparties": [],
       "company": null,
       "indication": null,
       "geography": null,
@@ -127,9 +167,17 @@
         "Clinical stage: Phase III.",
         "The company plans to file for regulatory approval in Europe and India in H2 2025."
       ],
+      "event_update": "Biocon Biologics has presented positive Phase III data for its insulin glargine biosimilar at the American Diabetes Association conference.",
+      "evidence": null,
+      "regulatory_status": "Trial outcome.",
+      "clinical_stage": "Clinical stage: Phase III.",
+      "strategic_significance": null,
+      "commercial_implications": null,
       "key_metric": null,
-      "relevance_score": 63,
-      "is_key_highlight": true,
+      "relevance_score": 55,
+      "score_rationale": "trial outcome; strongest factor is event maturity (24 points).",
+      "classification_confidence": 0.7,
+      "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
       "url": "https://biocon.com/clinical-trials/insulin-glargine-phase3",
@@ -141,70 +189,13 @@
       "published_at": "2025-06-15"
     },
     {
-      "title": "Dr. Reddy's launches generic cardiovascular drug in US market",
-      "headline": "Dr. Reddy's launches generic cardiovascular drug in US market",
-      "molecule": null,
-      "company": null,
-      "indication": null,
-      "geography": null,
-      "categories": [
-        "FDA Approval",
-        "Cardiovascular"
-      ],
-      "primary_category": "FDA Approval",
-      "therapy_area": "Cardiovascular",
-      "summary": "Reddy's Laboratories has launched its generic version of amlodipine/atorvastatin combination tablets in the US market. The product is the generic equivalent of Pfizer's Caduet. The company has received approval from USFDA for the abbreviated new drug application. The product was launched immediately following approval.",
-      "key_points": [],
-      "key_metric": null,
-      "relevance_score": 53,
-      "is_key_highlight": true,
-      "demoted": false,
-      "demotion_reason": "",
-      "url": "https://drreddys.com/news/us-launch-caduet-generic",
-      "source": "Dr. Reddy's",
-      "sources": [
-        "Dr. Reddy's"
-      ],
-      "is_consolidated": false,
-      "published_at": "2025-06-18"
-    },
-    {
-      "title": "Alembic Pharmaceuticals receives EMA approval for oncology product",
-      "headline": "Alembic Pharmaceuticals receives EMA approval for oncology product",
-      "molecule": null,
-      "company": null,
-      "indication": null,
-      "geography": null,
-      "categories": [
-        "EMA Approval",
-        "Oncology"
-      ],
-      "primary_category": "EMA Approval",
-      "therapy_area": "Oncology",
-      "summary": "Alembic Pharmaceuticals has received marketing authorization from the European Medicines Agency for its generic oncology product used in the treatment of multiple myeloma. This is Alembic's second EMA approval for an oncology product in 2025.",
-      "key_points": [
-        "Regulatory action involving EMA.",
-        "This is Alembic's second EMA approval for an oncology product in 2025."
-      ],
-      "key_metric": null,
-      "relevance_score": 51,
-      "is_key_highlight": true,
-      "demoted": false,
-      "demotion_reason": "",
-      "url": "https://alembicpharmaceuticals.com/ema-oncology-approval",
-      "source": "Alembic",
-      "sources": [
-        "Alembic"
-      ],
-      "is_consolidated": false,
-      "published_at": "2025-06-13"
-    }
-  ],
-  "other_news": [
-    {
       "title": "Torrent Pharma acquires German specialty pharma company for €450M",
       "headline": "Torrent Pharma acquires German specialty pharma company for €450M",
+      "particular": "Torrent Pharma acquires German specialty pharma company for €450M",
+      "asset_label": "Torrent Pharma acquires German specialty pharma company for €450M",
       "molecule": null,
+      "brand_name": null,
+      "counterparties": [],
       "company": null,
       "indication": null,
       "geography": null,
@@ -221,8 +212,16 @@
         "The transaction is expected to close in Q3 2025, subject to regulatory approvals.",
         "Heumann reported revenues of €180 million in 2024 with EBITDA margins of 28%."
       ],
+      "event_update": "Torrent Pharmaceuticals has announced the acquisition of Berlin-based specialty pharmaceutical company Heumann Pharma for €450 million.",
+      "evidence": "Heumann reported revenues of €180 million in 2024 with EBITDA margins of 28%.",
+      "regulatory_status": "Ma.",
+      "clinical_stage": null,
+      "strategic_significance": null,
+      "commercial_implications": "Torrent Pharmaceuticals has announced the acquisition of Berlin-based specialty pharmaceutical company Heumann Pharma for €450 million.",
       "key_metric": null,
-      "relevance_score": 58,
+      "relevance_score": 45,
+      "score_rationale": "ma; strongest factor is event maturity (24 points).",
+      "classification_confidence": 0.7,
       "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
@@ -235,9 +234,103 @@
       "published_at": "2025-06-16"
     },
     {
+      "title": "Alembic Pharmaceuticals receives EMA approval for oncology product",
+      "headline": "Alembic Pharmaceuticals receives EMA approval for oncology product",
+      "particular": "Alembic Pharmaceuticals receives EMA approval for oncology product",
+      "asset_label": "Alembic Pharmaceuticals receives EMA approval for oncology product",
+      "molecule": null,
+      "brand_name": null,
+      "counterparties": [],
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "EMA Approval",
+        "Oncology"
+      ],
+      "primary_category": "EMA Approval",
+      "therapy_area": "Oncology",
+      "summary": "Alembic Pharmaceuticals has received marketing authorization from the European Medicines Agency for its generic oncology product used in the treatment of multiple myeloma. This is Alembic's second EMA approval for an oncology product in 2025.",
+      "key_points": [
+        "Regulatory action involving EMA.",
+        "This is Alembic's second EMA approval for an oncology product in 2025."
+      ],
+      "event_update": "Alembic Pharmaceuticals has received marketing authorization from the European Medicines Agency for its generic oncology product used in the treatment of multiple myeloma.",
+      "evidence": null,
+      "regulatory_status": "Final approval - EMA.",
+      "clinical_stage": null,
+      "strategic_significance": null,
+      "commercial_implications": "Alembic Pharmaceuticals has received marketing authorization from the European Medicines Agency for its generic oncology product used in the treatment of multiple myeloma.",
+      "key_metric": null,
+      "relevance_score": 42,
+      "score_rationale": "final approval; strongest factor is event maturity (30 points).",
+      "classification_confidence": 0.7,
+      "is_key_highlight": false,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://alembicpharmaceuticals.com/ema-oncology-approval",
+      "source": "Alembic",
+      "sources": [
+        "Alembic"
+      ],
+      "is_consolidated": false,
+      "published_at": "2025-06-13"
+    },
+    {
+      "title": "Lupin gets orphan drug designation for pediatric rare disease candidate",
+      "headline": "Lupin gets orphan drug designation for pediatric rare disease candidate",
+      "particular": "Lupin gets orphan drug designation for pediatric rare disease candidate",
+      "asset_label": "Lupin gets orphan drug designation for pediatric rare disease candidate",
+      "molecule": null,
+      "brand_name": null,
+      "counterparties": [],
+      "company": null,
+      "indication": null,
+      "geography": null,
+      "categories": [
+        "Clinical Trial",
+        "Orphan Drug Designation",
+        "Rare Disease",
+        "Indian Market"
+      ],
+      "primary_category": "Clinical Trial",
+      "therapy_area": "Rare Disease",
+      "summary": "Lupin Limited has announced that its novel small molecule candidate for the treatment of Duchenne muscular dystrophy has received orphan drug designation from the FDA. The designation provides Lupin with 7 years of market exclusivity upon approval and waiver of FDA application fees. The candidate is currently in Phase II clinical trials with 48 patients enrolled across 12 sites in the US. Top-line results are expected in Q1 2026.",
+      "key_points": [
+        "Regulatory action involving FDA.",
+        "Clinical stage: Phase II.",
+        "The designation provides Lupin with 7 years of market exclusivity upon approval and waiver of FDA application fees.",
+        "The candidate is currently in Phase II clinical trials with 48 patients enrolled across 12 sites in the US."
+      ],
+      "event_update": "Lupin Limited has announced that its novel small molecule candidate for the treatment of Duchenne muscular dystrophy has received orphan drug designation from the FDA.",
+      "evidence": "The candidate is currently in Phase II clinical trials with 48 patients enrolled across 12 sites in the US.",
+      "regulatory_status": "Designation - FDA.",
+      "clinical_stage": "Clinical stage: Phase II.",
+      "strategic_significance": null,
+      "commercial_implications": "The designation provides Lupin with 7 years of market exclusivity upon approval and waiver of FDA application fees.",
+      "key_metric": null,
+      "relevance_score": 38,
+      "score_rationale": "designation; strongest factor is event maturity (10 points).",
+      "classification_confidence": 0.7,
+      "is_key_highlight": false,
+      "demoted": false,
+      "demotion_reason": "",
+      "url": "https://lupin.com/media/fda-orphan-drug-designation-2025",
+      "source": "Lupin",
+      "sources": [
+        "Lupin"
+      ],
+      "is_consolidated": false,
+      "published_at": "2025-06-14"
+    },
+    {
       "title": "Strides Pharma secures licensing deal for emerging markets",
       "headline": "Strides Pharma secures licensing deal for emerging markets",
+      "particular": "Strides Pharma secures licensing deal for emerging markets",
+      "asset_label": "Strides Pharma secures licensing deal for emerging markets",
       "molecule": null,
+      "brand_name": null,
+      "counterparties": [],
       "company": null,
       "indication": null,
       "geography": null,
@@ -250,8 +343,16 @@
       "key_points": [
         "The deal includes upfront payments of $8 million plus double-digit royalties on net sales."
       ],
+      "event_update": "Strides Pharma Science has entered into a licensing agreement with a European pharma company for the commercialization of 12 oral solid dosage products in Africa and Southeast Asian markets.",
+      "evidence": "The deal includes upfront payments of $8 million plus double-digit royalties on net sales.",
+      "regulatory_status": "Licensing.",
+      "clinical_stage": null,
+      "strategic_significance": null,
+      "commercial_implications": "Strides Pharma Science has entered into a licensing agreement with a European pharma company for the commercialization of 12 oral solid dosage products in Africa and Southeast Asian markets.",
       "key_metric": "$8 million",
-      "relevance_score": 41,
+      "relevance_score": 38,
+      "score_rationale": "licensing; strongest factor is event maturity (20 points).",
+      "classification_confidence": 0.7,
       "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
@@ -264,69 +365,49 @@
       "published_at": "2025-06-14"
     },
     {
-      "title": "Cipla expands manufacturing capacity for respiratory products",
-      "headline": "Cipla expands manufacturing capacity for respiratory products",
+      "title": "Dr. Reddy's launches generic cardiovascular drug in US market",
+      "headline": "Dr. Reddy's launches generic cardiovascular drug in US market",
+      "particular": "Dr. Reddy's launches generic cardiovascular drug in US market",
+      "asset_label": "Dr. Reddy's launches generic cardiovascular drug in US market",
       "molecule": null,
+      "brand_name": null,
+      "counterparties": [],
       "company": null,
       "indication": null,
       "geography": null,
       "categories": [
-        "Manufacturing",
-        "Respiratory",
-        "Indian Market"
+        "FDA Approval",
+        "Cardiovascular"
       ],
-      "primary_category": "Manufacturing",
-      "therapy_area": "Respiratory",
-      "summary": "Cipla has announced the expansion of its manufacturing facility in Indore with an investment of ₹150 crore. The expansion will increase the company's capacity for metered-dose inhalers by 40%. The facility is expected to be operational by Q4 2025.",
-      "key_points": [
-        "The expansion will increase the company's capacity for metered-dose inhalers by 40%."
-      ],
+      "primary_category": "FDA Approval",
+      "therapy_area": "Cardiovascular",
+      "summary": "Reddy's Laboratories has launched its generic version of amlodipine/atorvastatin combination tablets in the US market. The product is the generic equivalent of Pfizer's Caduet. The company has received approval from USFDA for the abbreviated new drug application. The product was launched immediately following approval.",
+      "key_points": [],
+      "event_update": "Reddy's Laboratories has launched its generic version of amlodipine/atorvastatin combination tablets in the US market.",
+      "evidence": null,
+      "regulatory_status": "Launch.",
+      "clinical_stage": null,
+      "strategic_significance": null,
+      "commercial_implications": "Reddy's Laboratories has launched its generic version of amlodipine/atorvastatin combination tablets in the US market.",
       "key_metric": null,
-      "relevance_score": 28,
+      "relevance_score": 26,
+      "score_rationale": "launch; strongest factor is event maturity (18 points).",
+      "classification_confidence": 0.7,
       "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
-      "url": "https://cipla.com/media/indore-expansion-2025",
-      "source": "Cipla",
+      "url": "https://drreddys.com/news/us-launch-caduet-generic",
+      "source": "Dr. Reddy's",
       "sources": [
-        "Cipla"
+        "Dr. Reddy's"
       ],
       "is_consolidated": false,
-      "published_at": "2025-06-17"
-    },
-    {
-      "title": "Wockhardt initiates Phase I study for novel antibiotic",
-      "headline": "Wockhardt initiates Phase I study for novel antibiotic",
-      "molecule": null,
-      "company": null,
-      "indication": null,
-      "geography": null,
-      "categories": [
-        "Infectious Disease"
-      ],
-      "primary_category": "Infectious Disease",
-      "therapy_area": "Infectious Disease",
-      "summary": "Wockhardt has announced the initiation of a Phase I clinical study for its novel antibiotic candidate targeting multi-drug resistant bacterial infections. The study will enroll 60 healthy volunteers across sites in the UK.",
-      "key_points": [
-        "Clinical stage: Phase I."
-      ],
-      "key_metric": null,
-      "relevance_score": 13,
-      "is_key_highlight": false,
-      "demoted": false,
-      "demotion_reason": "",
-      "url": "https://wockhardt.com/research/phase1-antibiotic",
-      "source": "Wockhardt",
-      "sources": [
-        "Wockhardt"
-      ],
-      "is_consolidated": false,
-      "published_at": "2025-06-12"
+      "published_at": "2025-06-18"
     }
   ],
-  "generated_at": "2026-06-27",
+  "generated_at": "2026-07-20",
   "demoted_count": 0,
-  "consolidated_count": 2,
-  "excluded_count": 0,
+  "consolidated_count": 0,
+  "excluded_count": 3,
   "pipeline_version": "v1.1.0"
 }

@@ -152,21 +152,25 @@ Returns `categories[]`, `primary_category`, and `therapy_area`.
 
 **Template variables:** `{title}`, `{text}` (truncated to 2000 chars), `{event_type}`
 
-**What it does:** Determines if an article should be demoted from the leadership brief. Articles are demoted (not deleted — never-drop policy) if they are primarily about:
-- IND or CTA filings
-- Phase I / II trial initiations or enrollment
-- Conference presentations, poster abstracts
-- Preclinical / animal / in vitro data
-- Filing acceptance for review (not the decision itself)
-- Priority review designation (not final approval)
+**What it does:** Determines if an article is out of the newsletter's scope and should be **hard-excluded (dropped)**. Out-of-scope categories include:
+- IND or CTA filings; Phase I / II trial initiations or enrollment
+- A molecule merely advancing/entering a clinical phase without reported data
+- Conference presentations / poster abstracts, and *upcoming* "to present … at Congress" announcements
+- Preclinical / animal / in vitro data; filing acceptance for review
+- Preliminary regulatory interactions / study-design or scientific advice
+- Manufacturing / capacity / facility developments (incl. site acquisitions)
+- AI-only collaborations not tied to a drug/pipeline asset
+- Management / leadership / board changes
+- Market-forecast / market-size reports
+- Webinar / conference *participation* announcements
 
 Returns `{ "exclude": bool, "reason": string, "confidence": float }`.
 
 **Important:** Confidence below 0.65 defaults to **include** (conservative). Hard rule-based checks run first, before the LLM is called.
 
-**Downstream effect:** Demoted articles move to the "Other News" section of the brief instead of the main highlights. The `demoted` flag and `demotion_reason` are stored in the result.
+**Downstream effect:** Out-of-scope articles are removed from the brief entirely (`excluded` flag + `exclusion_reason`). In-scope items that merely score low are *demoted* (kept, ranked lower via the `demoted` flag) rather than dropped.
 
-**Fallback:** Hard-coded ontology patterns in `crawl4ai/pharma_intelligence/ontology.py` (`is_hard_excluded`, `has_strong_include_signal`).
+**Fallback:** Hard-coded ontology patterns in `crawl4ai/pharma_intelligence/ontology.py`. `is_scope_override()` (checked first, overrides include signals), then `has_strong_include_signal`, then `is_hard_excluded`.
 
 ---
 
@@ -191,9 +195,9 @@ These 5 weights (and the Key Highlight threshold) are configurable per-deploymen
 Returns `total_score`, `breakdown` dict, and `score_rationale` (one sentence). Each `breakdown` dimension is clamped server-side to its configured max and `total_score` is recomputed from the clamped breakdown, so a model response can't exceed the configured scale.
 
 **Downstream effect:**
-- `is_key_highlight` is set when `total_score` ≥ the configured Key Highlight threshold (default 60), with a lower, evidence/strategic/India-gated bar for immature-status items (Priority Review, filing acceptance, designation) — see `RelevanceScorer._determine_key_highlight()`.
-- Articles with `total_score < min_score_threshold` (default 10) are demoted (never dropped).
-- All results are sorted: key highlights first, then by descending score.
+- `is_key_highlight` is set when `total_score` ≥ the configured Key Highlight threshold (default 60), with a lower, evidence/strategic/India-gated bar for immature-status items (Priority Review, filing acceptance, designation) — see `RelevanceScorer._determine_key_highlight()`. Positive regulatory recommendations (e.g. CHMP) now score highly enough to qualify as Key Highlights.
+- In-scope articles with `total_score < min_score_threshold` (default 10) are demoted (kept, ranked lower). Out-of-scope articles are dropped upstream by the filter.
+- Output is a single flat table sorted by descending score (key highlights lead).
 
 **Fallback:** `RelevanceScorer._score_with_rules()` — regex/keyword heuristics compute each dimension on the *default* 30/20/20/15/15 scale, then `_scale_to_configured_weights()` proportionally rescales them onto whatever weights are actually configured.
 
@@ -206,9 +210,10 @@ Returns `total_score`, `breakdown` dict, and `score_rationale` (one sentence). E
 **Template variables:** `{title}`, `{text}` (truncated to 3500 chars), `{molecule}`, `{company}`, `{indication}`, `{event_type}`
 
 **What it does:** Writes a leadership-ready intelligence brief for each article with:
-- **4–6 sentences** of substantive, analytical detail (not a one-liner)
+- **2–3 tight sentences** (~3 lines max) integrated into a single narrative (no labelled fields)
+- For pivotal-study approvals: states the decision is Phase III/IIb-based, names the trial, and gives the **key differentiating factor vs existing/standard-of-care therapy**
 - Hard numbers: endpoints, p-values, percentages, deal values, patient counts
-- Strategic context: competitive position, geography, cross-approval status
+- Strategic context: competitive position, geography, existing regulatory footprint
 - **2–4 bullet key points** for executives (market size, generic risk, next catalyst, etc.)
 - An 8–12 word factual headline
 - A single `key_metric` (most important number/stat)
@@ -405,7 +410,7 @@ Web URL
   │     → categories[], primary_category, therapy_area
   │
   ├── Layer 3: [ExclusionFilter]  ←── Prompt 3.1 (system) + 3.4 (user)
-  │     → demoted: bool, demotion_reason (never deleted — never-drop policy)
+  │     → excluded: bool (out-of-scope items dropped); in-scope low-value → demoted
   │
   ├── Layer 4: [RelevanceScorer]  ←── Prompt 3.1 (system) + 3.5 (user)
   │     → total_score (0–100), is_key_highlight, score_breakdown
@@ -414,11 +419,12 @@ Web URL
   │     → clusters articles → merged cards with sources[]
   │
   └── Layer 5: [LeadershipSummarizer]  ←── Prompt 3.1 (system) + 3.6 (user)
-        → summary (4-6 sentences), headline, key_metric, key_points[]
+        → summary (2-3 sentences), headline, key_metric, key_points[]
               │
               ▼
         [PharmaEmailFormatter]
-        Sorted output: Key Highlights first → by score → Other News
+        Single flat 3-column table: Asset/Molecule | News Summary | Source
+        (sorted by score; key highlights lead)
               │
               ▼
         Stored in pharma_results (PostgreSQL)

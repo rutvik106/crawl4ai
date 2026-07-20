@@ -6,6 +6,7 @@ Routes (all under /api prefix from main.py):
   GET  /api/intelligence/config       - read KPI config
   PUT  /api/intelligence/config       - update KPI config
   GET  /api/intelligence/report/html  - HTML email report
+  GET  /api/intelligence/report/pdf   - PDF report (for management circulation)
 
 Storage is PostgreSQL (same DATABASE_URL as dashboard/db.py) so results and
 config survive restarts on Railway/Neon. Articles are pulled from already-
@@ -23,7 +24,7 @@ from typing import Any, Callable, Dict, List, Optional
 import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from api.auth import get_current_user
@@ -429,11 +430,13 @@ async def process_articles(
     all_items = [r.to_dict() for r in results]
     summary = formatter.format_json_summary(all_items)
     summary["generated_at"] = date_str
-    # Never-drop policy: no article is discarded. The only reduction in count comes
-    # from de-duplication (multiple sources merged into one consolidated item).
-    summary["demoted_count"] = sum(1 for r in results if r.demoted)
-    summary["consolidated_count"] = len(articles) - len(results)
-    summary["excluded_count"] = 0  # retained for backward compatibility
+    # Out-of-scope items (manufacturing/facility, leadership, market forecasts,
+    # webinars, "will-present" announcements, trial-phase entry, reg-planning) are
+    # hard-excluded; the remainder may be de-duplicated (sources merged).
+    stats = pipeline.last_run_stats
+    summary["demoted_count"] = stats.get("demoted_count", sum(1 for r in results if r.demoted))
+    summary["consolidated_count"] = stats.get("consolidated_count", 0)
+    summary["excluded_count"] = stats.get("excluded_count", 0)
 
     await asyncio.to_thread(_store_result, date_str, summary)
     return JSONResponse(summary)
@@ -481,3 +484,68 @@ async def get_html_report(
     formatter = PharmaEmailFormatter()
     html = await asyncio.to_thread(formatter.format_report, all_items)
     return HTMLResponse(content=html)
+
+
+def _build_report_pdf(date_str: str, items: List[Dict[str, Any]]) -> bytes:
+    """Render the report items into a branded PDF (for management circulation)."""
+    import tempfile
+    from crawl4ai.output.pdf_output import PDFReportOutput
+    from crawl4ai.models import CrawlResult
+
+    # Rank the same way the flat table does: key highlights lead, then by score.
+    ranked = sorted(
+        items,
+        key=lambda x: (not x.get("is_key_highlight"), x.get("relevance_score", 0) * -1),
+    )
+    pdf_articles = [
+        {
+            "title": it.get("particular") or it.get("headline") or it.get("title", ""),
+            "source": it.get("source") or "Multiple Sources",
+            "category": it.get("primary_category") or "Pharma News",
+            "summary": it.get("summary", ""),
+            "time_ago": it.get("published_at", ""),
+            "relevance_score": it.get("relevance_score", 0),
+            "molecule": it.get("molecule"),
+            "company": it.get("company"),
+            "therapy_area": it.get("therapy_area"),
+            "url": it.get("url", ""),
+        }
+        for it in ranked
+    ]
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        backend = PDFReportOutput(
+            path=tmp_path,
+            title=f"Daily Pharma Intelligence Brief - {date_str}",
+        )
+        backend.save(CrawlResult(
+            url="pharma-intelligence",
+            success=True,
+            extracted_content=json.dumps(pdf_articles),
+        ))
+        backend.finalize()
+        with open(tmp_path, "rb") as fh:
+            return fh.read()
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+@router.get("/intelligence/report/pdf")
+async def get_pdf_report(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today"),
+    current_user: dict = Depends(get_current_user),
+):
+    date_str = date or DateType.today().isoformat()
+    result = await asyncio.to_thread(_get_result, date_str)
+    if not result:
+        raise HTTPException(404, f"No intelligence report found for {date_str}.")
+    all_items = result.get("key_highlights", []) + result.get("other_news", [])
+    pdf_bytes = await asyncio.to_thread(_build_report_pdf, date_str, all_items)
+    filename = f"pharma-intelligence-{date_str}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

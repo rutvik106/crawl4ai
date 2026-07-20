@@ -350,8 +350,8 @@ flowchart TD
 
     S4["Stage 4 — Relevance Scoring\nscorer.py · RelevanceScorer\ntotal_score 0-100, breakdown, is_key_highlight"]
 
-    S5{"Stage 5 — Demotion\nscore < min_threshold\nOR filter flagged?"}
-    DEMOTE["demoted=True\nis_key_highlight=False\n(article KEPT — never-drop policy)"]
+    S5{"Stage 5 — Scope filter / demotion\nout-of-scope? OR score < min_threshold?"}
+    DEMOTE["out-of-scope → excluded=True (dropped)\nin-scope low-value → demoted=True (kept, ranked lower)"]
     KEEP["Promote as\nKey Highlight or Regular"]
 
     S6["Stage 6 — Deduplication\ndeduplicator.py · Deduplicator\nJaccard ≥ 0.55 OR entity fingerprint match\n→ merge to richest cluster"]

@@ -136,8 +136,12 @@ class RelevanceScorer:
             "final_approval": 30,
             "label_expansion": 27,
             "withdrawal": 27,
+            # A positive regulatory recommendation (e.g. CHMP) is a significant
+            # milestone the client wants surfaced as a Key Highlight, so it scores
+            # close to a trial outcome rather than being treated as a minor review
+            # step.
+            "positive_recommendation": 27,
             "trial_outcome": 24,
-            "positive_recommendation": 18,
             "launch": 18,
             "exclusivity": 18,
             "priority_review": 10,

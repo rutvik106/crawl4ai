@@ -25,6 +25,7 @@ Return a JSON object with EXACTLY these fields (use null if not found/applicable
   "molecule": "primary drug/molecule INN name (prefer INN over brand)",
   "brand_name": "brand name if mentioned, else null",
   "company": "primary pharma company involved",
+  "counterparties": ["for a deal/M&A/licensing/collaboration, the companies involved, e.g. [\"Pfizer\", \"Innovent\"]; else []"],
   "indication": "disease or medical condition being treated",
   "trial_phase": "Phase I / Phase II / Phase III / Phase IV / null",
   "geography": "country or region where the event occurred",
@@ -71,22 +72,42 @@ Detected Event Type: {event_type}
 EXCLUDE if primarily about:
 - IND or CTA filing/approval (not a final regulatory approval)
 - Phase I or Phase II trial initiation or enrollment announcements
+- A molecule merely ADVANCING/PROGRESSING/ENTERING a clinical phase (e.g. "to
+  Phase 2b/Phase III") WITHOUT reported meaningful clinical data
+- Trial commentary that does NOT disclose substantive data (e.g. "CEO discusses
+  trial results without disclosing data")
 - Conference presentations, poster abstracts
+- UPCOMING conference presentation announcements ("to present ... at Congress
+  2026"). Cover the later item only once results are actually presented/released
 - Preclinical, in vitro, or animal study data
 - Filing acceptance for review (not the decision itself)
 - Routine filing acceptance without additional strategic evidence
 - Early discovery or research stage news
+- Preliminary regulatory interactions / study-design or scientific advice
+  (e.g. "receives multi-agency advice on registrational study design") — no
+  material development outcome
+- Manufacturing / capacity expansions, spray-drying, or facility/site
+  developments (incl. acquisitions of a manufacturing site)
+- AI-based collaborations UNLESS directly linked to a specific drug-development
+  asset or pipeline value
+- Management / leadership / board appointments and departures
+- Market forecast / market-size reports
+- Webinar or conference PARTICIPATION announcements ("to join a webinar")
 - Hospital operations news unrelated to specific drugs
 - Patent filings (not expiry events)
 
 INCLUDE if primarily about:
 - Final FDA / EMA / CDSCO / NMPA / MHRA regulatory approvals
-- Phase III or pivotal trial OUTCOMES (positive or negative)
-- Acquisitions, mergers, or major licensing deals
-- Fast Track, Breakthrough Therapy, or Orphan Drug designations
-- First generic or biosimilar launches
-- Patent expiry / market exclusivity events
+- Positive regulatory recommendations (e.g. CHMP recommends X) — a significant
+  regulatory milestone
+- Phase IIb / Phase III or later-stage OUTCOMES with meaningful reported data
+  (positive or negative)
 - Label expansions or new indications
+- Major mergers, acquisitions, licensing, partnership, or asset transactions
+  involving pipeline or commercial products
+- Fast Track, Breakthrough Therapy, or Orphan Drug designations
+- First generic or biosimilar launches; important commercial launches
+- Patent expiry / market exclusivity events
 - Priority Review backed by strong late-stage evidence and exceptional strategic relevance
 
 Return JSON:
@@ -127,6 +148,12 @@ Evaluate five dimensions (total 0-{total_max}):
   involvement alone is not sufficient.
 
 Decision guardrails:
+- Emphasize: regulatory approvals AND positive regulatory recommendations
+  (e.g. CHMP), significant Phase IIb/Phase III data, label expansions, major
+  licensing/acquisition/partnership/asset transactions, important commercial
+  launches, and meaningful clinical/regulatory outcomes backed by robust data.
+- A positive regulatory recommendation (CHMP recommends / adopts a positive
+  opinion) is a significant milestone and normally qualifies as a Key Highlight.
 - Routine generic/tentative approvals normally belong in Other News unless they
   are first-generic, exclusive, or commercially/competitively material.
 - Priority Review, filing acceptance, and designations normally belong in Other
@@ -164,9 +191,12 @@ Indication: {indication}
 Event Type: {event_type}
 
 Requirements:
-- Write one compact paragraph of 3-5 substantive sentences.
+- Write ONE tight paragraph of 2-3 sentences (about 3 lines max). Be concise —
+  the description is the most important content and must not run long.
+- Integrate everything into a flowing narrative. Do NOT emit labelled fields such
+  as "Indication:", "Event:", or "Regulatory Status:" inside the summary text.
 - Follow this sequence where the source supports it: event/update; quantified
-  evidence; exact regulatory status or clinical stage; strategic/commercial impact.
+  evidence; strategic/commercial impact.
 - Never invent a field. Use null when the source does not support it.
 - Lead with the actual outcome/decision and clearly distinguish final approval from
   filing acceptance, Priority Review, recommendation, designation, or launch.
@@ -174,13 +204,18 @@ Requirements:
   when present in the source.
 - Use precise, active voice. AVOID filler like "In a significant development",
   "It is worth noting", "notably".
-- If Phase III/pivotal: state whether the primary endpoint was met, the key efficacy
-  and safety results (with numbers), the comparator, and the therapy area.
-- If an approval: state molecule, indication, geography, AND whether the product is
-  already approved or marketed in OTHER geographies (e.g. "already approved by the FDA
-  and EMA"); note competitive/first-in-class status if known.
-- If M&A/licensing: state acquirer, target, deal value, the assets/portfolio gained,
-  and the strategic rationale.
+- For approvals/recommendations backed by a pivotal study: STATE that the decision
+  is based on a Phase III (or Phase IIb) trial, NAME the trial, give its key
+  efficacy/safety result (with numbers), and — most importantly — the KEY
+  DIFFERENTIATING factor versus existing/standard-of-care therapies (why this was
+  approved over existing options and how it compared). Keep benchmarks grounded in
+  the source article.
+- If an approval: state molecule, indication, geography, AND include one line on
+  the product's existing regulatory footprint / geographical approvals across major
+  regions (e.g. "already approved by the FDA and EMA"); note first-in-class status
+  if known.
+- If M&A/licensing/partnership: state the companies involved, the deal value
+  whenever publicly available, the assets/portfolio gained, and the rationale.
 - Keep implications grounded in the article; do not turn assumptions into facts.
 
 Match the tone, density, and structure of these reference Daily Bites entries
@@ -219,7 +254,7 @@ therapies are currently available in India, indicating strong unmet need."
 
 Return JSON:
 {{
-  "summary": "compact 3-5 sentence analytical brief",
+  "summary": "tight 2-3 sentence analytical brief (~3 lines max)",
   "headline": "8-12 word factual headline",
   "key_metric": "single most important number/stat if present, else null",
   "event_update": "what happened, including molecule/company, or null",

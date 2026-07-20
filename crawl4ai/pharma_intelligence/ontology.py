@@ -136,6 +136,26 @@ HARD_EXCLUSION_PATTERNS: List[str] = [
     r"\bdiscovery stage\b",
     r"\bpatent.*filed\b",
     r"\bfiled.*patent\b",
+    # Trial-phase *entry* / progression without reported data (client scope):
+    # "advances to Phase 2b", "moves into Phase III", etc. These are checked
+    # AFTER the strong-include signals, so a genuine "Phase III met primary
+    # endpoint / success" headline is still retained via STRONG_INCLUDE.
+    r"\b(?:advance[sd]?|advancing|progress(?:e[sd]|ing)?|moves?|moving|enter(?:s|ing|ed)?|initiat\w*|begins?)\b.{0,40}\bphase\s*(?:i{1,3}b?|[1-4]b?)\b",
+    r"\bwithout (?:disclosing|releasing|revealing|sharing|presenting) (?:the )?data\b",
+    # Preliminary regulatory interactions / study-design advice (no material
+    # development outcome).
+    r"\bmulti[- ]agency advice\b",
+    r"\bscientific advice\b",
+    r"\bregistrational study design\b",
+    r"\b(?:advice|guidance|feedback|agreement|input)\b.{0,40}\bstudy design\b",
+    r"\bstudy design\b.{0,40}\b(?:advice|guidance|feedback|agreement|input)\b",
+    r"\bpre[- ]?IND meeting\b",
+    r"\bend[- ]of[- ]phase\s*(?:ii|2)?\b",
+    r"\btype [ABCabc] meeting\b",
+    # Upcoming conference *presentation* announcements ("to present ... at ...
+    # Congress/Meeting 2026"). The subsequent results/data item is covered later.
+    r"\bto present\b.{0,80}\b(?:congress|conference|meeting|symposium|summit|session)\b",
+    r"\bto present\b.{0,60}\b(?:19|20)\d\d\b",
 ]
 
 COMPILED_EXCLUSIONS = [
@@ -149,8 +169,8 @@ STRONG_INCLUDE_PATTERNS: List[str] = [
     # excluded terms like "preclinical" or "Phase II".
     r"\b(?:us)?fda\b.{0,40}\b(?:approv|nod|clear|grant|authori[sz])",
     r"\b(?:approv|nod|clear|grant|authori[sz])\w*\b.{0,40}\b(?:us)?fda\b",
-    r"\b(?:ema|cdsco|nmpa|mhra|tga|pmda)\b.{0,40}\b(?:approv|nod|clear|grant|authori[sz])",
-    r"\b(?:approv|nod|clear|grant|authori[sz])\w*\b.{0,40}\b(?:ema|cdsco|nmpa|mhra|tga|pmda)\b",
+    r"\b(?:ema|ec|european commission|cdsco|nmpa|mhra|tga|pmda)\b.{0,40}\b(?:approv|nod|clear|grant|authori[sz])",
+    r"\b(?:approv|nod|clear|grant|authori[sz])\w*\b.{0,40}\b(?:ema|ec|european commission|cdsco|nmpa|mhra|tga|pmda)\b",
     r"\bmarketing authori[sz]ation\b",
     r"\bnda.*approv",
     r"\bbla.*approv",
@@ -169,10 +189,66 @@ STRONG_INCLUDE_PATTERNS: List[str] = [
     # Priority Review is not automatically Key, but must reach contextual scoring;
     # otherwise exceptional cases are irreversibly demoted before prioritization.
     r"\bpriority review\b",
+    # Positive regulatory recommendations (e.g. CHMP recommends X) are a
+    # significant milestone the client explicitly wants surfaced as Key
+    # Highlights, so they must reach contextual scoring rather than being
+    # demoted as "just a review milestone".
+    r"\b(?:chmp|advisory committee)\b.{0,40}\b(?:recommend|positive opinion|adopts? a positive)",
+    r"\b(?:recommend|positive opinion)\w*\b.{0,40}\b(?:chmp|advisory committee)\b",
 ]
 
 COMPILED_INCLUDES = [
     re.compile(p, re.IGNORECASE) for p in STRONG_INCLUDE_PATTERNS
+]
+
+
+# ── Scope-override exclusions (checked BEFORE strong-include) ────────────────────
+# These categories are out of the newsletter's scope even when the headline
+# contains deal/collaboration/acquisition keywords that would otherwise trigger a
+# strong-include signal. The classic example is a manufacturing *site*
+# acquisition ("Codis Acquires Catalent Nottingham Site") whose "acquires" verb
+# would wrongly force-include it as M&A. Genuine drug approvals / pipeline
+# transactions essentially never match these headline shapes, so overriding the
+# include signal here is safe.
+SCOPE_OVERRIDE_PATTERNS: List[str] = [
+    # Manufacturing / capacity / facility developments (incl. site acquisitions).
+    r"\bspray[- ]dry(?:ing)?\b",
+    r"\bmanufacturing (?:capacity|facility|site|plant|expansion|network|operations?)\b",
+    r"\b(?:capacity|facility|site|plant) (?:expansion|acquisition)\b",
+    r"\bfill[- ]finish\b",
+    r"\b(?:acquir\w*|buys?|purchas\w*)\b.{0,40}\b(?:site|facility|plant|campus|manufacturing)\b",
+    r"\b(?:site|facility|plant|campus)\b.{0,40}\b(?:acquir\w*|acquisition)\b",
+    r"\bcdmo\b.{0,40}\b(?:site|facility|capacity|plant)\b",
+    # AI-based collaborations *not* tied to a drug/pipeline asset.
+    r"\b(?:ai|artificial intelligence|machine learning)\b.{0,40}\b(?:collaborat|partnership|partner|deal|alliance)",
+    r"\b(?:collaborat|partnership|partner|alliance)\b.{0,40}\b(?:ai|artificial intelligence|machine learning)\b",
+    # Management / leadership changes.
+    r"\b(?:appoint\w*|names?|promotes?|hires?)\b.{0,40}\b(?:ceo|cfo|coo|cto|cso|cmo|chief|president|chair(?:man|person)?|vice president|head of|director)\b",
+    r"\b(?:ceo|cfo|coo|cto|cso|cmo|chief executive|president)\b.{0,25}\b(?:steps down|resign\w*|to retire|departs?|appointed|named)\b",
+    r"\bboard of directors\b",
+    r"\bboard appointment\b",
+    # Market forecast / market-size reports.
+    r"\bmarket\b.{0,30}\b(?:forecast|projected|projection|to (?:exceed|reach|surpass|grow|hit)|size|cagr|outlook|valuation)\b",
+    r"\bforecast\b.{0,20}\b(?:to (?:exceed|reach|surpass)|through|by (?:19|20)\d\d)\b",
+    r"\bmarket (?:report|analysis)\b.{0,30}\b(?:19|20)\d\d\b",
+    # Webinar / conference *participation* announcements.
+    r"\bwebinar\b",
+    r"\bfireside chat\b",
+    r"\bto (?:join|participate|feature|appear)\b.{0,40}\b(?:webinar|panel|kol|roundtable|discussion|fireside)\b",
+    r"\bkol\b.{0,20}\b(?:webinar|event|call|discussion)\b",
+]
+
+# A drug/pipeline asset context that should NEG the AI-collaboration override:
+# an AI partnership explicitly tied to a named asset / clinical program is in
+# scope, so we do not override the include signal in that case.
+_DRUG_ASSET_CONTEXT = re.compile(
+    r"\b(?:phase\s*(?:i{1,3}|[1-4])|pipeline|clinical (?:trial|program|stage|asset)|"
+    r"drug candidate|molecule|nda|bla|maa|indication|therapy for|treatment for)\b",
+    re.IGNORECASE,
+)
+
+COMPILED_SCOPE_OVERRIDES = [
+    re.compile(p, re.IGNORECASE) for p in SCOPE_OVERRIDE_PATTERNS
 ]
 
 
@@ -184,6 +260,26 @@ def is_hard_excluded(text: str) -> bool:
 def has_strong_include_signal(text: str) -> bool:
     combined = text[:2000]
     return any(p.search(combined) for p in COMPILED_INCLUDES)
+
+
+def is_scope_override(text: str) -> bool:
+    """Definitively out-of-scope categories that override include signals.
+
+    Returns True for manufacturing/facility developments (incl. site
+    acquisitions), AI-only collaborations, leadership changes, market-forecast
+    reports and webinar/participation announcements. AI collaborations are NOT
+    overridden when the text clearly ties them to a named drug/pipeline asset.
+    """
+    combined = text[:2000]
+    for pattern in COMPILED_SCOPE_OVERRIDES:
+        if not pattern.search(combined):
+            continue
+        # Keep AI collaborations that are explicitly linked to a pipeline asset.
+        if "ai" in pattern.pattern or "artificial intelligence" in pattern.pattern:
+            if _DRUG_ASSET_CONTEXT.search(combined):
+                continue
+        return True
+    return False
 
 
 # ── Shared regulatory-milestone detector ───────────────────────────────────────

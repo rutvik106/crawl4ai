@@ -1,8 +1,11 @@
 """Tests for the pharma intelligence pipeline.
 
 Focus areas (driven by client feedback):
-  1. Never-drop coverage  - no article is silently discarded; low-value / filtered
-                             items are demoted to "Other News" instead.
+  1. Scope filtering      - out-of-scope categories (manufacturing/facility,
+                             leadership changes, market forecasts, webinar /
+                             "will-present" announcements, trial-phase entry,
+                             regulatory-planning) are hard-excluded (dropped);
+                             in-scope-but-low-value items are demoted (retained).
   2. Summary depth        - summaries are substantive (multi-sentence) and carry
                              analytical key_points.
   3. LLM provider routing - the API can select OpenAI or native Anthropic Claude.
@@ -50,7 +53,7 @@ HIGH_VALUE_ARTICLE = PharmaArticle(
     published_at="2025-06-19",
 )
 
-# A classic "noise" item that the old pipeline would EXCLUDE entirely.
+# A trial-phase-entry item that is now hard-excluded (Phase I initiation).
 LOW_VALUE_ARTICLE = PharmaArticle(
     title="Wockhardt initiates Phase I study for novel antibiotic",
     text=(
@@ -60,6 +63,30 @@ LOW_VALUE_ARTICLE = PharmaArticle(
     ),
     url="https://wockhardt.com/phase1-antibiotic",
     source="Wockhardt",
+    published_at="2025-06-19",
+)
+
+# An in-scope but genuinely low-relevance item: retained (demoted), not dropped.
+LOW_VALUE_IN_SCOPE_ARTICLE = PharmaArticle(
+    title="Generic ibuprofen tablets reach select regional pharmacies",
+    text=(
+        "A regional distributor noted that generic ibuprofen tablets are now stocked in "
+        "some local pharmacies, with no change to pricing or supply arrangements."
+    ),
+    url="https://example.com/generic-ibuprofen",
+    source="Trade Wire",
+    published_at="2025-06-19",
+)
+
+# An out-of-scope leadership change that must be hard-excluded.
+LEADERSHIP_ARTICLE = PharmaArticle(
+    title="Mikart Appoints Darrin Schellin as Chief Executive Officer",
+    text=(
+        "Mikart, a contract development and manufacturing organization, today announced the "
+        "appointment of Darrin Schellin as its new Chief Executive Officer."
+    ),
+    url="https://example.com/mikart-ceo",
+    source="PR Newswire",
     published_at="2025-06-19",
 )
 
@@ -75,39 +102,103 @@ CONFERENCE_ARTICLE = PharmaArticle(
 )
 
 
-# ── 1. Never-drop coverage ──────────────────────────────────────────────────────
+# ── 1. Scope filtering (hard-exclude vs demote) ──────────────────────────────────
 
-def test_no_article_is_dropped():
-    """Every input article must appear in the output (coverage is never lost)."""
-    articles = [HIGH_VALUE_ARTICLE, LOW_VALUE_ARTICLE, CONFERENCE_ARTICLE]
+def test_out_of_scope_items_are_dropped():
+    """Out-of-scope items (Phase I entry, conference posters, leadership changes)
+    are hard-excluded; only the in-scope article survives."""
+    articles = [HIGH_VALUE_ARTICLE, LOW_VALUE_ARTICLE, CONFERENCE_ARTICLE, LEADERSHIP_ARTICLE]
     pipeline = PharmaPipeline(llm_client=None, min_score_threshold=10)
     results = pipeline.process(articles)
-    # No de-dup collisions expected for these distinct titles.
-    assert len(results) == len(articles)
+    titles = {r.title for r in results}
+    assert HIGH_VALUE_ARTICLE.title in titles
+    assert LOW_VALUE_ARTICLE.title not in titles
+    assert CONFERENCE_ARTICLE.title not in titles
+    assert LEADERSHIP_ARTICLE.title not in titles
+    assert pipeline.last_run_stats["excluded_count"] == 3
 
 
-def test_filtered_item_is_demoted_not_excluded():
-    """An item that the old pipeline would EXCLUDE (conference/preclinical noise) is
-    now retained but flagged demoted and pushed out of the key highlights."""
+def test_conference_item_is_excluded():
+    """A conference poster / preclinical item is dropped, not demoted."""
     pipeline = PharmaPipeline(llm_client=None, min_score_threshold=10)
     results = pipeline.process([HIGH_VALUE_ARTICLE, CONFERENCE_ARTICLE])
-
-    by_title = {r.title: r for r in results}
-    conf = by_title[CONFERENCE_ARTICLE.title]  # KeyError here would mean it was dropped
-
-    assert conf.demoted is True
-    assert conf.demotion_reason  # non-empty explanation
-    assert conf.is_key_highlight is False
+    titles = {r.title for r in results}
+    assert HIGH_VALUE_ARTICLE.title in titles
+    assert CONFERENCE_ARTICLE.title not in titles
 
 
-def test_low_relevance_item_lands_in_other_news():
-    """A low-relevance item that isn't hard-filtered is still kept (as Other News)."""
+def test_leadership_change_is_excluded():
+    """Management/leadership appointments are out of scope and dropped."""
     pipeline = PharmaPipeline(llm_client=None, min_score_threshold=10)
-    results = pipeline.process([LOW_VALUE_ARTICLE])
+    results = pipeline.process([LEADERSHIP_ARTICLE])
+    assert results == []
 
+
+def test_low_relevance_in_scope_item_is_retained_and_demoted():
+    """A low-relevance but in-scope item is kept (ranked lower), not excluded."""
+    pipeline = PharmaPipeline(llm_client=None, min_score_threshold=10)
+    results = pipeline.process([LOW_VALUE_IN_SCOPE_ARTICLE])
+
+    assert len(results) == 1
     item = results[0]
-    assert item.title == LOW_VALUE_ARTICLE.title  # retained, never dropped
+    assert item.title == LOW_VALUE_IN_SCOPE_ARTICLE.title  # retained, not dropped
+    assert item.excluded is False
     assert item.is_key_highlight is False
+
+
+@pytest.mark.parametrize("title", [
+    "Codis Acquires Catalent Nottingham Site for European Spray Drying Capacity",
+    "Teva Advances Anti-IL-15 Antibody TEV-408 to Phase 2b in Vitiligo",
+    "Moleculin CEO Discusses MIRACLE Trial Results Without Disclosing Data",
+    "AMO Pharma Receives Multi-Agency Advice on AMO-02 Registrational Study Design",
+    "Altesa to Present Novel Vapendavir Data at ERS Congress 2026",
+    "Mikart Appoints Darrin Schellin as Chief Executive Officer",
+    "Global Neurotechnology Market Forecast to Exceed USD 50 Billion by 2034",
+    "NeuroSense to Join Roth KOL Webinar on ALS Treatment Future",
+])
+def test_client_out_of_scope_examples_are_excluded(title):
+    excluded, _ = ExclusionFilter(None).should_exclude(title, "")
+    assert excluded is True
+
+
+@pytest.mark.parametrize("title", [
+    "CHMP Recommends Teclistamab Plus Daratumumab for Relapsed Multiple Myeloma",
+    "EC Approves TEPKINLY Combination for Relapsed/Refractory Follicular Lymphoma",
+    "Pfizer and Innovent sign global licensing deal worth up to $10.5 billion",
+])
+def test_client_in_scope_examples_are_included(title):
+    excluded, _ = ExclusionFilter(None).should_exclude(title, "")
+    assert excluded is False
+
+
+def test_manufacturing_site_acquisition_overrides_include_signal():
+    """A manufacturing *site* acquisition must be excluded even though 'acquires'
+    would otherwise trigger the M&A strong-include signal."""
+    excluded, reason = ExclusionFilter(None).should_exclude(
+        "Codis Acquires Catalent Nottingham Site for Spray Drying Capacity", ""
+    )
+    assert excluded is True
+    assert "scope" in reason.lower()
+
+
+def test_ai_collaboration_kept_when_linked_to_pipeline_asset():
+    """AI collaborations tied to a named drug/pipeline asset stay in scope."""
+    from crawl4ai.pharma_intelligence.ontology import is_scope_override
+    assert is_scope_override("BigPharma AI collaboration to advance oncology pipeline drug candidate") is False
+    assert is_scope_override("BigPharma announces AI collaboration for drug discovery platform") is True
+
+
+def test_asset_label_formats():
+    """Column-1 label: 'molecule (Brand)' for drugs, 'Prefix - A & B' for deals."""
+    fmt = PharmaEmailFormatter
+    assert fmt._asset_label({}, {"molecule": "epcoritamab", "brand_name": "Tepkinly"}) == "epcoritamab (Tepkinly)"
+    assert fmt._asset_label(
+        {"counterparties": ["Zydus", "Assertio"]}, {"event_type": "ma"}
+    ) == "M&A - Zydus & Assertio"
+    assert fmt._asset_label(
+        {"counterparties": ["Pfizer", "Innovent"], "categories": ["Licensing Deal"]},
+        {"event_type": "licensing"},
+    ) == "Licensing - Pfizer & Innovent"
 
 
 def test_approval_with_incidental_exclusion_word_stays_highlighted():
@@ -429,21 +520,25 @@ def test_formatter_renders_key_points():
 
 
 def test_formatter_matches_three_column_specimen():
-    """The email table must follow the client's 3-column 'Daily Bites' specimen:
-    Molecule/Particular | Highlights (Key) | View Article (no extra columns)."""
+    """The email must be a SINGLE flat 3-column table per the client's specimen:
+    Asset / Molecule | News Summary | Source ("Read the full article")."""
     pipeline = PharmaPipeline(llm_client=None, min_score_threshold=10)
     results = pipeline.process([HIGH_VALUE_ARTICLE])
     items = [r.to_dict() for r in results]
     html = PharmaEmailFormatter().format_report(items)
 
-    assert "Molecule/Particular" in html
-    assert "Highlights (Key)" in html
-    assert "View Article" in html
+    assert "Asset / Molecule" in html
+    assert "News Summary" in html
+    assert ">Source<" in html
     assert "Read the full article" in html
-    # The old 4th "Comments" column header must be gone.
-    assert ">Comments<" not in html
-    # Exactly three header cells per rendered section table.
-    assert html.count("Molecule/Particular") == html.count("Highlights (Key)")
+    # No Key Highlights / Other News section split in the flat layout.
+    assert "Key Highlights" not in html
+    assert "Other News" not in html
+    # Old badges/columns must be gone.
+    assert "DAILY BRIEF" not in html
+    assert "Molecule/Particular" not in html
+    # Exactly one table header (single flat table).
+    assert html.count("Asset / Molecule") == 1
 
 
 # ── 4. LLM provider routing (OpenAI vs native Anthropic) ──────────────────────────

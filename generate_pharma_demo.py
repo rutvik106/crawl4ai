@@ -171,20 +171,24 @@ def run_demo():
     # Process articles
     results = pipeline.process(articles)
 
-    # Summary statistics (never-drop policy: nothing is excluded; low-value items
-    # are demoted to Other News, and only de-duplication reduces the item count)
+    # Summary statistics: out-of-scope items are hard-excluded (dropped);
+    # in-scope low-value items are demoted (ranked lower), and de-duplication
+    # merges multiple sources for the same event.
+    stats = pipeline.last_run_stats
     highlights = [r for r in results if r.is_key_highlight]
     other = [r for r in results if not r.is_key_highlight]
-    demoted = sum(1 for r in results if r.demoted)
-    consolidated = len(SAMPLE_ARTICLES) - len(results)
+    demoted = stats.get("demoted_count", sum(1 for r in results if r.demoted))
+    consolidated = stats.get("consolidated_count", 0)
+    excluded = stats.get("excluded_count", 0)
 
     print("PROCESSING RESULTS:")
     print("-" * 50)
     print(f"Total Articles:          {len(SAMPLE_ARTICLES)}")
-    print(f"Retained (never-drop):   {len(results)}")
+    print(f"Retained:                {len(results)}")
     print(f"Key Highlights:          {len(highlights)}")
-    print(f"Other News:              {len(other)}")
-    print(f"Demoted to Other News:   {demoted}")
+    print(f"Other (lower-ranked):    {len(other)}")
+    print(f"Demoted (low score):     {demoted}")
+    print(f"Excluded (out of scope): {excluded}")
     print(f"Consolidated (dedup):    {consolidated}")
     print()
 
@@ -262,7 +266,7 @@ def run_demo():
     json_summary["generated_at"] = date.today().isoformat()
     json_summary["demoted_count"] = demoted
     json_summary["consolidated_count"] = consolidated
-    json_summary["excluded_count"] = 0  # never-drop policy; retained for compatibility
+    json_summary["excluded_count"] = excluded
     json_summary["pipeline_version"] = "v1.1.0"
 
     json_path = os.path.join(output_dir, "pharma_demo_data.json")
