@@ -482,7 +482,8 @@ async def get_html_report(
         raise HTTPException(404, f"No intelligence report found for {date_str}.")
     all_items = result.get("key_highlights", []) + result.get("other_news", [])
     formatter = PharmaEmailFormatter()
-    html = await asyncio.to_thread(formatter.format_report, all_items)
+    report_date = DateType.fromisoformat(date_str)
+    html = await asyncio.to_thread(formatter.format_report, all_items, report_date)
     return HTMLResponse(content=html)
 
 

@@ -26,6 +26,7 @@ Return a JSON object with EXACTLY these fields (use null if not found/applicable
   "brand_name": "brand name if mentioned, else null",
   "company": "primary pharma company involved",
   "counterparties": ["for a deal/M&A/licensing/collaboration, the companies involved, e.g. [\"Pfizer\", \"Innovent\"]; else []"],
+  "transaction_type": "one of: M&A | Acquisition | Licensing | Collaboration | Partnership | null",
   "indication": "disease or medical condition being treated",
   "trial_phase": "Phase I / Phase II / Phase III / Phase IV / null",
   "geography": "country or region where the event occurred",
@@ -193,6 +194,9 @@ Event Type: {event_type}
 Requirements:
 - Write ONE tight paragraph of 2-3 sentences (about 3 lines max). Be concise —
   the description is the most important content and must not run long.
+- Return summary prose only in the summary field. Do not include the asset/molecule
+  label, a source label, a URL, markdown, bullets, or "Read the full article";
+  those are added deterministically by the report formatter.
 - Integrate everything into a flowing narrative. Do NOT emit labelled fields such
   as "Indication:", "Event:", or "Regulatory Status:" inside the summary text.
 - Follow this sequence where the source supports it: event/update; quantified
@@ -214,8 +218,9 @@ Requirements:
   the product's existing regulatory footprint / geographical approvals across major
   regions (e.g. "already approved by the FDA and EMA"); note first-in-class status
   if known.
-- If M&A/licensing/partnership: state the companies involved, the deal value
-  whenever publicly available, the assets/portfolio gained, and the rationale.
+- If M&A/licensing/collaboration/acquisition/partnership: state the companies
+  involved, the deal value whenever publicly available, the assets/portfolio
+  gained, and the rationale.
 - Keep implications grounded in the article; do not turn assumptions into facts.
 
 Match the tone, density, and structure of these reference Daily Bites entries

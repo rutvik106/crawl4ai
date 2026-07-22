@@ -199,6 +199,20 @@ def test_asset_label_formats():
         {"counterparties": ["Pfizer", "Innovent"], "categories": ["Licensing Deal"]},
         {"event_type": "licensing"},
     ) == "Licensing - Pfizer & Innovent"
+    assert fmt._asset_label(
+        {"counterparties": ["Roche", "Repare"]},
+        {"event_type": "licensing", "transaction_type": "Collaboration"},
+    ) == "Collaboration - Roche & Repare"
+
+
+def test_rule_extractor_identifies_transaction_type():
+    entities = EntityExtractor().extract(
+        "Roche and Repare announce oncology collaboration",
+        "The companies will jointly develop a named oncology pipeline asset.",
+    )
+    assert entities["event_type"] == "licensing"
+    assert entities["transaction_type"] == "Collaboration"
+    assert entities["counterparties"] == []
 
 
 def test_approval_with_incidental_exclusion_word_stays_highlighted():
@@ -539,6 +553,60 @@ def test_formatter_matches_three_column_specimen():
     assert "Molecule/Particular" not in html
     # Exactly one table header (single flat table).
     assert html.count("Asset / Molecule") == 1
+
+
+def test_formatter_preserves_asset_label_after_json_round_trip():
+    """Stored API items are flattened, so later HTML generation must not lose
+    molecule/brand and transaction labels."""
+    formatter = PharmaEmailFormatter()
+    raw_items = [
+        {
+            "title": "FDA approves ExampleDrug",
+            "summary": "The FDA approved the therapy for the stated indication.",
+            "url": "https://example.com/drug",
+            "entities": {
+                "molecule": "examplemab",
+                "brand_name": "ExampleDrug",
+                "company": "Example Pharma",
+            },
+            "therapy_area": "Oncology",
+            "is_key_highlight": True,
+        },
+        {
+            "title": "Company A acquires Company B",
+            "summary": "Company A agreed to acquire Company B for its pipeline.",
+            "url": "https://example.com/deal?x=1&y=2",
+            "entities": {"event_type": "ma", "transaction_type": "Acquisition"},
+            "counterparties": ["Company A", "Company B"],
+            "categories": ["M&A Activity"],
+            "is_key_highlight": False,
+        },
+    ]
+
+    stored = formatter.format_json_summary(raw_items)
+    persisted_items = stored["key_highlights"] + stored["other_news"]
+    html = formatter.format_report(persisted_items)
+
+    assert "examplemab (ExampleDrug)" in html
+    assert "M&amp;A - Company A &amp; Company B" in html
+    assert "Example Pharma" not in html
+    assert "Oncology" not in html
+    assert 'href="https://example.com/deal?x=1&amp;y=2"' in html
+
+
+def test_formatter_escapes_content_and_rejects_non_web_links():
+    html = PharmaEmailFormatter().format_report([
+        {
+            "title": "Unsafe title",
+            "summary": "A <script>alert('x')</script> summary",
+            "url": "javascript:alert(1)",
+            "asset_label": "Drug <Brand>",
+        }
+    ])
+    assert "<script>" not in html
+    assert "Drug &lt;Brand&gt;" in html
+    assert "javascript:" not in html
+    assert "Read the full article" not in html
 
 
 # ── 4. LLM provider routing (OpenAI vs native Anthropic) ──────────────────────────

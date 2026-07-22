@@ -65,7 +65,7 @@ class LeadershipSummarizer:
         }
 
     @staticmethod
-    def _extract_lead_sentences(text: str, n: int = 4) -> str:
+    def _extract_lead_sentences(text: str, n: int = 3) -> str:
         sentences = re.split(r"(?<=[.!?])\s+", text.strip())
         meaningful = [
             s.strip() for s in sentences

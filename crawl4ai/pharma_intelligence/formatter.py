@@ -3,7 +3,9 @@ Layer 6: Email-Native HTML Table Formatter
 """
 from __future__ import annotations
 from datetime import date
+from html import escape
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 
 
 # Single flat-table style. Kept Outlook-friendly: only widely-supported inline
@@ -65,7 +67,8 @@ class PharmaEmailFormatter:
             "asset_label": particular,
             "molecule": entities.get("molecule"),
             "brand_name": entities.get("brand_name"),
-            "counterparties": item.get("counterparties", []),
+            "counterparties": item.get("counterparties") or entities.get("counterparties", []),
+            "transaction_type": entities.get("transaction_type"),
             "company": entities.get("company"),
             "indication": entities.get("indication"),
             "geography": entities.get("geography"),
@@ -96,20 +99,21 @@ class PharmaEmailFormatter:
 
     @staticmethod
     def _render_header(title: str, report_date: date) -> str:
+        safe_title = escape(title)
         return f"""\
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{title}</title>
+  <title>{safe_title}</title>
 </head>
 <body style="margin:0;padding:0;background:#f0f4f5;font-family:Arial,Helvetica,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f5;padding:24px 0;">
 <tr><td align="center">
 <table width="680" cellpadding="0" cellspacing="0" style="background:#ffffff;">
 <tr><td style="background:#0f3d52;padding:24px 32px;">
-  <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">{title}</h1>
+  <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">{safe_title}</h1>
   <p style="margin:4px 0 0;color:#a8d4e0;font-size:13px;">{report_date.strftime('%B %d, %Y')}</p>
 </td></tr>
 """
@@ -148,13 +152,26 @@ class PharmaEmailFormatter:
     def _asset_label(item: Dict, entities: Dict) -> str:
         """Column-1 label. For drugs: 'molecule (Brand)'. For transactions:
         'M&A - Company A & Company B', 'Licensing - Company A & Company B', etc."""
-        molecule = entities.get("molecule")
-        brand = entities.get("brand_name")
+        # JSON reports persist flattened entity fields. Read both shapes so an
+        # HTML report generated after storage retains exactly the same label.
+        molecule = entities.get("molecule") or item.get("molecule")
+        brand = entities.get("brand_name") or item.get("brand_name")
         event_type = str(entities.get("event_type") or "").lower()
         categories = [str(c).lower() for c in item.get("categories", [])]
+        transaction_type = str(
+            entities.get("transaction_type") or item.get("transaction_type") or ""
+        ).strip().lower()
 
         deal_prefix = None
-        if event_type == "ma" or "m&a activity" in categories:
+        if transaction_type in {"m&a", "ma", "acquisition", "merger"}:
+            deal_prefix = "M&A"
+        elif transaction_type == "licensing":
+            deal_prefix = "Licensing"
+        elif transaction_type == "collaboration":
+            deal_prefix = "Collaboration"
+        elif transaction_type == "partnership":
+            deal_prefix = "Partnership"
+        elif event_type == "ma" or "m&a activity" in categories:
             deal_prefix = "M&A"
         elif event_type == "licensing" or "licensing deal" in categories:
             deal_prefix = "Licensing"
@@ -165,9 +182,13 @@ class PharmaEmailFormatter:
 
         # Deal-type items without a specific molecule → name the counterparties.
         if deal_prefix and not molecule:
-            parties = [str(p).strip() for p in (item.get("counterparties") or []) if str(p).strip()]
-            if not parties and entities.get("company"):
-                parties = [str(entities["company"]).strip()]
+            parties = [
+                str(p).strip()
+                for p in (item.get("counterparties") or entities.get("counterparties") or [])
+                if str(p).strip()
+            ]
+            if not parties and (entities.get("company") or item.get("company")):
+                parties = [str(entities.get("company") or item.get("company")).strip()]
             if parties:
                 return f"{deal_prefix} - {' & '.join(parties[:3])}"
 
@@ -178,33 +199,41 @@ class PharmaEmailFormatter:
             return str(molecule)
         if brand:
             return str(brand)
+        persisted_label = item.get("asset_label") or item.get("particular")
+        if persisted_label:
+            return str(persisted_label)
         headline = item.get("headline") or item.get("title") or "—"
         return str(headline)[:90]
+
+    @staticmethod
+    def _safe_article_url(value: Any) -> str:
+        """Allow only clickable web URLs in the source column."""
+        url = str(value or "").strip()
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            return ""
+        return url if parsed.scheme in {"http", "https"} and parsed.netloc else ""
 
     def _render_row(self, item: Dict, style: Dict) -> str:
         entities = item.get("entities", {})
         asset_label = self._asset_label(item, entities)
-        company = entities.get("company") or ""
-        therapy = item.get("therapy_area") or ""
         # The description is the primary content; everything extra (status/stage/
         # metric/source sub-lines) has been removed so the summary stands alone.
         summary = item.get("summary") or item.get("headline") or item.get("title") or ""
-        url = item.get("url", "#")
+        url = self._safe_article_url(item.get("url"))
 
         link_cell = (
-            f'<a href="{url}" target="_blank" style="display:inline-block;'
+            f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;'
             f'background:#0f3d52;color:#ffffff;font-size:11px;font-weight:600;'
             f'padding:6px 12px;text-decoration:none;">Read the full article</a>'
-            if url and url != "#" else "—"
+            if url else "—"
         )
 
-        summary_html = f'<span style="font-size:12px;color:#334155;line-height:1.55;">{summary}</span>'
+        summary_html = f'<span style="font-size:12px;color:#334155;line-height:1.55;">{escape(str(summary))}</span>'
 
-        mol_html = (
-            f'<b style="font-size:13px;color:#0f2d3d;">{asset_label}</b>'
-            + (f'<br/><span style="font-size:10px;color:#64748b;">{company}</span>' if company else '')
-            + (f'<br/><span style="font-size:10px;color:#94a3b8;">{therapy}</span>' if therapy else '')
-        )
+        # Keep this cell limited to the exact client-requested identifier.
+        mol_html = f'<b style="font-size:13px;color:#0f2d3d;">{escape(str(asset_label))}</b>'
         return (
             f'<tr style="border-bottom:1px solid #e2e8f0;">'
             f'<td style="padding:12px;vertical-align:top;background:{style["row_accent"]};">{mol_html}</td>'

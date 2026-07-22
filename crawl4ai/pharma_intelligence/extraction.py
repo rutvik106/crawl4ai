@@ -81,8 +81,18 @@ class EntityExtractor:
             if pattern.search(combined):
                 event_type = etype
                 break
+        transaction_type = None
+        if re.search(r"\b(?:acqui(?:re[sd]?|sition)|merger|takeover|buyout)\b", combined, re.I):
+            transaction_type = "Acquisition"
+        elif re.search(r"\blicens(?:e|ed|ing|ure)\b", combined, re.I):
+            transaction_type = "Licensing"
+        elif re.search(r"\bcollaborat(?:e[sd]?|ion|ive)\b", combined, re.I):
+            transaction_type = "Collaboration"
+        elif re.search(r"\bpartner(?:ship|ed|s|ing)?\b", combined, re.I):
+            transaction_type = "Partnership"
         return {
             "molecule": None, "brand_name": None, "company": None,
+            "counterparties": [], "transaction_type": transaction_type,
             "indication": None, "trial_phase": trial_phase, "geography": None,
             "regulatory_body": regulatory_body, "event_type": event_type,
             "regulatory_status": detect_regulatory_status(title, text, event_type, truncate=1500),
@@ -92,6 +102,7 @@ class EntityExtractor:
     def _normalise(self, data: Dict[str, Any]) -> Dict[str, Any]:
         defaults = {
             "molecule": None, "brand_name": None, "company": None,
+            "counterparties": [], "transaction_type": None,
             "indication": None, "trial_phase": None, "geography": None,
             "regulatory_body": None, "event_type": "other",
             "regulatory_status": "not_applicable", "deal_value": None,
