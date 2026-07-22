@@ -48,6 +48,7 @@ def _load_schedules() -> None:
     print(f"[scheduler] Found {len(schedules)} schedules ({len(enabled)} enabled)")
     for sched in enabled:
         _add_schedule_job(sched)
+    _register_pharma_schedule()
     _register_consolidated_check()
     _register_expiry_check()
 
@@ -141,6 +142,67 @@ def _execute_scheduled_job(sched: dict) -> None:
 
     # Execute
     run_job_async(job_id)
+
+
+def _register_pharma_schedule() -> None:
+    """Register the optional daily pharma report and email delivery job."""
+    scheduler = get_scheduler()
+    job_id = "pharma_intelligence_daily"
+    existing = scheduler.get_job(job_id)
+    if existing:
+        scheduler.remove_job(job_id)
+
+    try:
+        from api.routers.intelligence import _get_config
+        config = _get_config()
+    except Exception as exc:
+        print(f"[scheduler] Could not load pharma schedule config: {exc}")
+        return
+
+    if not config.get("schedule_enabled"):
+        print("[scheduler] Pharma intelligence schedule is disabled")
+        return
+
+    raw_time = str(config.get("schedule_time") or "08:30")
+    try:
+        hour, minute = (int(part) for part in raw_time.split(":", 1))
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError
+    except (TypeError, ValueError):
+        print(f"[scheduler] Invalid pharma schedule time {raw_time!r}; schedule not registered")
+        return
+
+    scheduler.add_job(
+        _execute_pharma_report,
+        trigger=CronTrigger(hour=hour, minute=minute, timezone=_SCHEDULER_TZ),
+        id=job_id,
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=3600,
+    )
+    next_run = scheduler.get_job(job_id)
+    print(
+        f"[scheduler] Registered daily pharma report at {raw_time} IST "
+        f"(next={next_run.next_run_time if next_run else 'unknown'})"
+    )
+
+
+def _execute_pharma_report() -> None:
+    """Start the scheduled report without holding an HTTP request open."""
+    from api.routers.intelligence import start_report_run
+
+    started = start_report_run(deliver_email=True)
+    print(
+        "[scheduler] Pharma report generation started"
+        if started else
+        "[scheduler] Pharma report skipped because that date is already running"
+    )
+
+
+def refresh_pharma_schedule() -> None:
+    """Apply pharma schedule configuration changes immediately."""
+    _register_pharma_schedule()
 
 
 def _register_consolidated_check() -> None:

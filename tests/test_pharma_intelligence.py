@@ -853,9 +853,11 @@ def test_config_endpoint_exposes_dimension_weights_and_drops_legacy_keys(monkeyp
         "event_maturity": 30, "evidence_strength": 20, "strategic_significance": 20,
         "commercial_implications": 15, "india_torrent_relevance": 15,
     }
+    assert cfg["schedule_enabled"] is False
+    assert cfg["schedule_time"] == "08:30"
 
 
-def test_process_endpoint_reads_dimension_weights_from_config(monkeypatch):
+def test_report_generation_reads_dimension_weights_from_config(monkeypatch):
     from api.routers import intelligence
 
     monkeypatch.setattr(
@@ -878,14 +880,11 @@ def test_process_endpoint_reads_dimension_weights_from_config(monkeypatch):
 
     monkeypatch.setattr(intelligence.PharmaPipeline, "__init__", capturing_init)
 
-    payload = intelligence.ProcessRequest(
-        date="2026-01-01",
-        articles=[intelligence.ArticleInput(
+    articles = [intelligence._to_pharma_article(intelligence.ArticleInput(
             title="Torrent Pharma launches new drug in India",
             text="Torrent Pharma launches a new drug in the Indian market.",
-        )],
-    )
-    asyncio.run(intelligence.process_articles(payload, current_user={"username": "test"}))
+        ).model_dump())]
+    intelligence._generate_report("2026-01-01", articles)
 
     assert captured_kwargs.get("dimension_weights") == {"india_torrent_relevance": 30}
 
@@ -922,8 +921,8 @@ def test_pipeline_threads_key_highlight_threshold_to_scorer():
     assert lowered_item.is_key_highlight is True
 
 
-def test_process_endpoint_reads_key_highlight_threshold_from_config(monkeypatch):
-    """The /intelligence/process endpoint must actually read
+def test_report_generation_reads_key_highlight_threshold_from_config(monkeypatch):
+    """The report generator must actually read
     key_highlight_score_threshold from the stored config and pass it to
     PharmaPipeline - it used to be fetched into pharma_cfg and then never
     used, so the config UI's "Key Highlight threshold" field was a no-op."""
@@ -945,18 +944,127 @@ def test_process_endpoint_reads_key_highlight_threshold_from_config(monkeypatch)
 
     monkeypatch.setattr(intelligence.PharmaPipeline, "__init__", capturing_init)
 
-    payload = intelligence.ProcessRequest(
-        date="2026-01-01",
-        articles=[intelligence.ArticleInput(
+    articles = [intelligence._to_pharma_article(intelligence.ArticleInput(
             title="FDA approves ExampleDrug for a rare condition",
             text="The FDA approved ExampleDrug for a rare condition based on clinical data.",
-        )],
-    )
-    response = asyncio.run(intelligence.process_articles(payload, current_user={"username": "test"}))
+        ).model_dump())]
+    summary = intelligence._generate_report("2026-01-01", articles)
 
     assert captured_kwargs.get("key_highlight_threshold") == 50
-    body = json.loads(response.body)
-    assert body["key_highlights_count"] == 1  # 55 >= configured threshold of 50
+    assert summary["key_highlights_count"] == 1  # 55 >= configured threshold of 50
+
+
+def test_process_endpoint_starts_background_run_and_returns_202(monkeypatch):
+    from api.routers import intelligence
+
+    calls = []
+    monkeypatch.setattr(
+        intelligence,
+        "start_report_run",
+        lambda date, articles: calls.append((date, articles)) or True,
+    )
+    payload = intelligence.ProcessRequest(date="2026-01-01")
+    response = asyncio.run(
+        intelligence.process_articles(payload, current_user={"username": "test"})
+    )
+
+    assert response.status_code == 202
+    assert calls == [("2026-01-01", None)]
+    assert json.loads(response.body)["status"] == "pending"
+
+
+def test_scheduled_run_generates_uploads_and_emails_pdf_link(monkeypatch):
+    from api.routers import intelligence
+
+    statuses = []
+    stored = []
+    sent = []
+    report = {
+        "key_highlights_count": 1,
+        "other_news_count": 2,
+        "key_highlights": [{"title": "A"}],
+        "other_news": [{"title": "B"}, {"title": "C"}],
+    }
+    monkeypatch.setattr(
+        intelligence,
+        "_set_run_status",
+        lambda date, status, **kwargs: statuses.append((date, status, kwargs)),
+    )
+    monkeypatch.setattr(intelligence, "_generate_report", lambda date, articles: dict(report))
+    monkeypatch.setattr(intelligence, "_build_report_pdf", lambda date, items: b"%PDF-test")
+    monkeypatch.setattr(
+        intelligence,
+        "_upload_report_pdf",
+        lambda date, data: "https://blob.example/report.pdf",
+    )
+    monkeypatch.setattr(
+        intelligence,
+        "_get_config",
+        lambda: {
+            "schedule_recipients": "client@example.com",
+            "schedule_email_subject": "Daily Brief",
+        },
+    )
+    monkeypatch.setattr(
+        intelligence,
+        "_send_report_link_email",
+        lambda *args: sent.append(args),
+    )
+    monkeypatch.setattr(
+        intelligence,
+        "_store_result",
+        lambda date, result: stored.append((date, result)),
+    )
+
+    intelligence._run_report_job("2026-07-22", deliver_email=True)
+
+    assert statuses[0][1] == "running"
+    assert statuses[-1] == (
+        "2026-07-22",
+        "completed",
+        {"pdf_url": "https://blob.example/report.pdf", "email_sent": True},
+    )
+    assert stored[-1][1]["pdf_url"] == "https://blob.example/report.pdf"
+    assert sent[0][2] == "https://blob.example/report.pdf"
+    assert sent[0][3] == "client@example.com"
+
+
+def test_scheduler_registers_daily_pharma_job_in_ist(monkeypatch):
+    from api.routers import intelligence
+    from dashboard import scheduler as scheduler_module
+
+    class _Job:
+        next_run_time = "next-run"
+
+    class _Scheduler:
+        def __init__(self):
+            self.added = None
+
+        def get_job(self, job_id):
+            return _Job() if self.added and job_id == "pharma_intelligence_daily" else None
+
+        def remove_job(self, job_id):
+            self.added = None
+
+        def add_job(self, func, **kwargs):
+            self.added = (func, kwargs)
+
+    fake_scheduler = _Scheduler()
+    monkeypatch.setattr(scheduler_module, "_scheduler", fake_scheduler)
+    monkeypatch.setattr(
+        intelligence,
+        "_get_config",
+        lambda: {"schedule_enabled": True, "schedule_time": "09:15"},
+    )
+
+    scheduler_module._register_pharma_schedule()
+
+    assert fake_scheduler.added is not None
+    _, kwargs = fake_scheduler.added
+    assert kwargs["id"] == "pharma_intelligence_daily"
+    assert "hour='9'" in str(kwargs["trigger"])
+    assert "minute='15'" in str(kwargs["trigger"])
+    assert str(kwargs["trigger"].timezone) == "Asia/Kolkata"
 
 
 def test_deduplicator_llm_failure_is_logged(caplog):

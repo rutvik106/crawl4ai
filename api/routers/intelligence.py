@@ -2,15 +2,16 @@
 
 Routes (all under /api prefix from main.py):
   GET  /api/intelligence/report       - fetch stored result for a date
-  POST /api/intelligence/process      - run pipeline on crawled articles for a date
+  POST /api/intelligence/process      - queue pipeline generation for a date
+  GET  /api/intelligence/status       - poll background generation status
   GET  /api/intelligence/config       - read KPI config
   PUT  /api/intelligence/config       - update KPI config
   GET  /api/intelligence/report/html  - HTML email report
   GET  /api/intelligence/report/pdf   - PDF report (for management circulation)
 
-Storage is PostgreSQL (same DATABASE_URL as dashboard/db.py) so results and
-config survive restarts on Railway/Neon. Articles are pulled from already-
-crawled jobs (jobs.extracted_articles) for the requested date.
+Storage is PostgreSQL (same DATABASE_URL as dashboard/db.py) so results,
+run status, and config survive restarts on Railway/Neon. Articles are pulled
+from already-crawled jobs (jobs.extracted_articles) for the requested date.
 """
 from __future__ import annotations
 
@@ -18,7 +19,9 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from datetime import date as DateType, datetime, timedelta
+from html import escape
 from typing import Any, Callable, Dict, List, Optional
 
 import psycopg2
@@ -52,10 +55,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "dimension_weights": dict(DEFAULT_DIMENSION_WEIGHTS),
     "key_highlight_score_threshold": KEY_HIGHLIGHT_SCORE_THRESHOLD,
     "min_score_threshold": 10,
+    "schedule_enabled": False,
+    "schedule_time": "08:30",
+    "schedule_recipients": "",
+    "schedule_email_subject": "Daily Pharma Intelligence Brief",
 }
 
 _COMPLETED_STATUSES = ("completed", "completed_empty")
 _tables_ready = False
+_active_runs: set[str] = set()
+_active_runs_lock = threading.Lock()
 
 
 # ── PostgreSQL helpers (sync, called via asyncio.to_thread) ──────────────────────
@@ -78,6 +87,20 @@ def _ensure_tables() -> None:
                     date_key TEXT PRIMARY KEY,
                     result JSONB NOT NULL,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pharma_runs (
+                    date_key TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    error TEXT,
+                    pdf_url TEXT,
+                    email_sent BOOLEAN NOT NULL DEFAULT FALSE,
+                    started_at TIMESTAMP WITH TIME ZONE,
+                    finished_at TIMESTAMP WITH TIME ZONE,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                 )
                 """
             )
@@ -128,6 +151,74 @@ def _store_result(date_str: str, result: Dict[str, Any]) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _set_run_status(
+    date_str: str,
+    status: str,
+    *,
+    error: Optional[str] = None,
+    pdf_url: Optional[str] = None,
+    email_sent: bool = False,
+) -> None:
+    """Persist run state so polling survives navigation and HTTP timeouts."""
+    _ensure_tables()
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO pharma_runs (
+                    date_key, status, error, pdf_url, email_sent,
+                    started_at, finished_at, updated_at
+                )
+                VALUES (
+                    %s, %s, %s, %s, %s,
+                    CASE WHEN %s = 'running' THEN NOW() ELSE NULL END,
+                    CASE WHEN %s IN ('completed', 'failed') THEN NOW() ELSE NULL END,
+                    NOW()
+                )
+                ON CONFLICT (date_key) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    error = EXCLUDED.error,
+                    pdf_url = EXCLUDED.pdf_url,
+                    email_sent = EXCLUDED.email_sent,
+                    started_at = CASE
+                        WHEN EXCLUDED.status = 'running' THEN NOW()
+                        WHEN EXCLUDED.status = 'pending' THEN NULL
+                        ELSE pharma_runs.started_at
+                    END,
+                    finished_at = CASE
+                        WHEN EXCLUDED.status IN ('completed', 'failed') THEN NOW()
+                        WHEN EXCLUDED.status = 'pending' THEN NULL
+                        ELSE pharma_runs.finished_at
+                    END,
+                    updated_at = NOW()
+                """,
+                (date_str, status, error, pdf_url, email_sent, status, status),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _get_run_status(date_str: str) -> Dict[str, Any]:
+    _ensure_tables()
+    conn = _connect()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM pharma_runs WHERE date_key = %s", (date_str,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return {"date": date_str, "status": "not_started"}
+    result = dict(row)
+    result["date"] = result.pop("date_key")
+    for key in ("started_at", "finished_at", "updated_at"):
+        if result.get(key):
+            result[key] = result[key].isoformat()
+    return result
 
 
 def _get_config() -> Dict[str, Any]:
@@ -370,6 +461,173 @@ class KPIConfigUpdate(BaseModel):
     dimension_weights: Optional[Dict[str, int]] = None
     key_highlight_score_threshold: Optional[int] = None
     min_score_threshold: Optional[int] = None
+    schedule_enabled: Optional[bool] = None
+    schedule_time: Optional[str] = None
+    schedule_recipients: Optional[str] = None
+    schedule_email_subject: Optional[str] = None
+
+
+def _generate_report(date_str: str, articles: Optional[List[PharmaArticle]] = None) -> Dict[str, Any]:
+    """Run the heavy pipeline synchronously inside a worker thread."""
+    articles = articles if articles is not None else _fetch_articles_for_date(date_str)
+    if not articles:
+        raise ValueError(
+            f"No crawled articles found for {date_str}. Run the source crawl jobs first."
+        )
+
+    pharma_cfg = _get_config()
+    pipeline = PharmaPipeline(
+        llm_client=_make_llm_client(),
+        min_score_threshold=pharma_cfg.get("min_score_threshold", 10),
+        run_deduplication=True,
+        key_highlight_threshold=pharma_cfg.get(
+            "key_highlight_score_threshold", KEY_HIGHLIGHT_SCORE_THRESHOLD
+        ),
+        dimension_weights=pharma_cfg.get("dimension_weights", DEFAULT_DIMENSION_WEIGHTS),
+    )
+    results = pipeline.process(articles)
+
+    formatter = PharmaEmailFormatter()
+    summary = formatter.format_json_summary([r.to_dict() for r in results])
+    summary["generated_at"] = date_str
+    stats = pipeline.last_run_stats
+    summary["demoted_count"] = stats.get(
+        "demoted_count", sum(1 for r in results if r.demoted)
+    )
+    summary["consolidated_count"] = stats.get("consolidated_count", 0)
+    summary["excluded_count"] = stats.get("excluded_count", 0)
+    _store_result(date_str, summary)
+    return summary
+
+
+def _upload_report_pdf(date_str: str, pdf_bytes: bytes) -> str:
+    """Upload a generated PDF and return its public Vercel Blob URL."""
+    from dashboard import db
+
+    settings = db.get_all_settings()
+    token = settings.get("blob_read_write_token") or os.getenv("BLOB_READ_WRITE_TOKEN", "")
+    if not token:
+        raise RuntimeError("BLOB_READ_WRITE_TOKEN is not configured; PDF link cannot be created")
+
+    try:
+        from vercel.blob import BlobClient
+    except ImportError as exc:
+        raise RuntimeError("The 'vercel' package is required for PDF delivery") from exc
+
+    timestamp = datetime.now(IST).strftime("%Y%m%d-%H%M%S")
+    blob_path = f"pharma-intelligence/{date_str}/report-{timestamp}.pdf"
+    uploaded = BlobClient(token=token).put(
+        blob_path,
+        pdf_bytes,
+        access="public",
+        add_random_suffix=False,
+    )
+    url = uploaded.url if hasattr(uploaded, "url") else uploaded.get("url", "")
+    if not url:
+        raise RuntimeError("PDF upload completed without returning a public URL")
+    return str(url)
+
+
+def _send_report_link_email(
+    date_str: str,
+    result: Dict[str, Any],
+    pdf_url: str,
+    recipients: str,
+    subject: str,
+) -> None:
+    from crawl4ai.output.email_output import EmailOutput
+
+    total = int(result.get("key_highlights_count", 0)) + int(result.get("other_news_count", 0))
+    safe_url = escape(pdf_url, quote=True)
+    html_body = f"""
+    <html><body style="font-family:Arial,Helvetica,sans-serif;color:#334155;max-width:620px;margin:0 auto;padding:24px;">
+      <div style="background:#0f3d52;padding:22px 26px;">
+        <h2 style="margin:0;color:#ffffff;font-size:20px;">Daily Pharma Intelligence Brief</h2>
+        <p style="margin:5px 0 0;color:#a8d4e0;font-size:13px;">{escape(date_str)}</p>
+      </div>
+      <div style="border:1px solid #dde6e9;border-top:0;padding:26px;">
+        <p style="margin:0 0 18px;font-size:14px;line-height:1.6;">
+          Today&apos;s pharma intelligence report is ready with <strong>{total}</strong> curated news items.
+        </p>
+        <p style="margin:0 0 22px;">
+          <a href="{safe_url}" style="display:inline-block;background:#0f3d52;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:11px 18px;">
+            Download PDF Report
+          </a>
+        </p>
+        <p style="margin:0;font-size:11px;color:#94a3b8;">Generated by IntelliFetch Pharma Intelligence Engine · Powered by Impeerical</p>
+      </div>
+    </body></html>
+    """
+    mailer = EmailOutput(to=recipients, subject=subject)
+    for recipient in [value.strip() for value in recipients.split(",") if value.strip()]:
+        mailer._send_via_api(recipient, html_body)
+
+
+def _run_report_job(
+    date_str: str,
+    articles: Optional[List[PharmaArticle]] = None,
+    *,
+    deliver_email: bool = False,
+) -> None:
+    try:
+        _set_run_status(date_str, "running")
+        result = _generate_report(date_str, articles)
+        pdf_url = None
+        email_sent = False
+
+        if deliver_email:
+            cfg = _get_config()
+            recipients = str(cfg.get("schedule_recipients") or "").strip()
+            if not recipients:
+                raise RuntimeError("Pharma schedule has no email recipients configured")
+            all_items = result.get("key_highlights", []) + result.get("other_news", [])
+            pdf_url = _upload_report_pdf(date_str, _build_report_pdf(date_str, all_items))
+            result["pdf_url"] = pdf_url
+            _store_result(date_str, result)
+            subject = str(cfg.get("schedule_email_subject") or "Daily Pharma Intelligence Brief")
+            _send_report_link_email(date_str, result, pdf_url, recipients, subject)
+            email_sent = True
+
+        _set_run_status(
+            date_str,
+            "completed",
+            pdf_url=pdf_url,
+            email_sent=email_sent,
+        )
+    except Exception as exc:
+        logger.exception("[pharma-run] Report generation failed for %s", date_str)
+        _set_run_status(date_str, "failed", error=str(exc))
+    finally:
+        with _active_runs_lock:
+            _active_runs.discard(date_str)
+
+
+def start_report_run(
+    date_str: Optional[str] = None,
+    articles: Optional[List[PharmaArticle]] = None,
+    *,
+    deliver_email: bool = False,
+) -> bool:
+    """Start a report in the background; return False when already running."""
+    date_str = date_str or datetime.now(IST).date().isoformat()
+    with _active_runs_lock:
+        if date_str in _active_runs:
+            return False
+        _active_runs.add(date_str)
+    try:
+        _set_run_status(date_str, "pending")
+        threading.Thread(
+            target=_run_report_job,
+            args=(date_str, articles),
+            kwargs={"deliver_email": deliver_email},
+            daemon=True,
+            name=f"pharma-report-{date_str}",
+        ).start()
+        return True
+    except Exception:
+        with _active_runs_lock:
+            _active_runs.discard(date_str)
+        raise
 
 
 # ── Endpoints ────────────────────────────────────────────────
@@ -395,51 +653,25 @@ async def process_articles(
     current_user: dict = Depends(get_current_user),
 ):
     date_str = payload.date or DateType.today().isoformat()
-
-    # Articles come from the request body when provided (testing/override),
-    # otherwise from already-crawled jobs for the date.
-    if payload.articles:
-        articles = [_to_pharma_article(a.model_dump()) for a in payload.articles]
-    else:
-        articles = await asyncio.to_thread(_fetch_articles_for_date, date_str)
-
-    if not articles:
-        raise HTTPException(
-            404,
-            f"No crawled articles found for {date_str}. Run a crawl job for this date first.",
-        )
-
-    pharma_cfg = await asyncio.to_thread(_get_config)
-    min_score = pharma_cfg.get("min_score_threshold", 10)
-    key_highlight_threshold = pharma_cfg.get(
-        "key_highlight_score_threshold", KEY_HIGHLIGHT_SCORE_THRESHOLD
+    articles = (
+        [_to_pharma_article(a.model_dump()) for a in payload.articles]
+        if payload.articles else None
     )
-    dimension_weights = pharma_cfg.get("dimension_weights", DEFAULT_DIMENSION_WEIGHTS)
-
-    pipeline = PharmaPipeline(
-        llm_client=_make_llm_client(),
-        min_score_threshold=min_score,
-        run_deduplication=True,
-        key_highlight_threshold=key_highlight_threshold,
-        dimension_weights=dimension_weights,
+    started = await asyncio.to_thread(start_report_run, date_str, articles)
+    message = "Pharma intelligence generation started" if started else "A run is already in progress"
+    return JSONResponse(
+        {"date": date_str, "status": "pending" if started else "running", "message": message},
+        status_code=202,
     )
 
-    results = await asyncio.to_thread(pipeline.process, articles)
 
-    formatter = PharmaEmailFormatter()
-    all_items = [r.to_dict() for r in results]
-    summary = formatter.format_json_summary(all_items)
-    summary["generated_at"] = date_str
-    # Out-of-scope items (manufacturing/facility, leadership, market forecasts,
-    # webinars, "will-present" announcements, trial-phase entry, reg-planning) are
-    # hard-excluded; the remainder may be de-duplicated (sources merged).
-    stats = pipeline.last_run_stats
-    summary["demoted_count"] = stats.get("demoted_count", sum(1 for r in results if r.demoted))
-    summary["consolidated_count"] = stats.get("consolidated_count", 0)
-    summary["excluded_count"] = stats.get("excluded_count", 0)
-
-    await asyncio.to_thread(_store_result, date_str, summary)
-    return JSONResponse(summary)
+@router.get("/intelligence/status")
+async def get_process_status(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today"),
+    current_user: dict = Depends(get_current_user),
+):
+    date_str = date or DateType.today().isoformat()
+    return JSONResponse(await asyncio.to_thread(_get_run_status, date_str))
 
 
 @router.get("/intelligence/config")
@@ -467,7 +699,23 @@ async def update_config(
         current["key_highlight_score_threshold"] = payload.key_highlight_score_threshold
     if payload.min_score_threshold is not None:
         current["min_score_threshold"] = payload.min_score_threshold
+    if payload.schedule_enabled is not None:
+        current["schedule_enabled"] = payload.schedule_enabled
+    if payload.schedule_time is not None:
+        try:
+            datetime.strptime(payload.schedule_time, "%H:%M")
+        except ValueError as exc:
+            raise HTTPException(400, "schedule_time must use 24-hour HH:MM format") from exc
+        current["schedule_time"] = payload.schedule_time
+    if payload.schedule_recipients is not None:
+        current["schedule_recipients"] = payload.schedule_recipients.strip()
+    if payload.schedule_email_subject is not None:
+        current["schedule_email_subject"] = payload.schedule_email_subject.strip()
+    if current.get("schedule_enabled") and not current.get("schedule_recipients"):
+        raise HTTPException(400, "At least one email recipient is required when scheduling is enabled")
     await asyncio.to_thread(_store_config, current)
+    from dashboard.scheduler import refresh_pharma_schedule
+    await asyncio.to_thread(refresh_pharma_schedule)
     return JSONResponse({"status": "ok", "config": current})
 
 
