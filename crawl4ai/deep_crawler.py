@@ -286,6 +286,10 @@ async def deep_crawl(
         hinted = [l for l in filtered_links
                   if _ARTICLE_HINT_RE.search(urlparse(l["url"]).path)]
         chosen = hinted if hinted else filtered_links
+        # Preserve every discovered headline→URL pair for deterministic source
+        # reconciliation after LLM extraction. Only the capped subset below is
+        # fetched in full, but listing-only articles can still retain their URL.
+        result["url_candidates"] = chosen
         article_links = chosen[:deep_config.max_inner_pages]
         result["article_links"] = article_links
         result["stats"]["article_links_after_filter"] = len(article_links)

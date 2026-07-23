@@ -11,6 +11,7 @@ import pytest
 from crawl4ai.extraction.llm_extraction import LLMExtractionStrategy
 from crawl4ai.llm_config import LLMConfig
 from crawl4ai.deep_crawler import smart_extract, _heuristic_filter
+from dashboard.engine import _attach_article_urls
 
 
 # ── Fix 1: smart_extract uses async aextract, not sync extract ──
@@ -143,3 +144,41 @@ def test_heuristic_filter_removes_noise():
     filtered = _heuristic_filter(articles)
     assert len(filtered) == 1
     assert filtered[0]["title"] == "Real News Article About Pharma Company Earnings"
+
+
+def test_attach_article_urls_matches_exact_headline():
+    articles = [{"title": "Company Announces Positive Phase 3 Results"}]
+    links = [{
+        "text": "Company Announces Positive Phase 3 Results",
+        "url": "https://example.com/news/phase-3-results",
+    }]
+
+    attached = _attach_article_urls(articles, links)
+
+    assert attached == 1
+    assert articles[0]["url"] == "https://example.com/news/phase-3-results"
+
+
+def test_attach_article_urls_matches_minor_headline_variation():
+    articles = [{"title": "Lilly reports positive topline results for retatrutide trials"}]
+    links = [{
+        "text": "Lilly reports positive topline results from retatrutide Phase 3 trials",
+        "url": "https://example.com/news/retatrutide",
+    }]
+
+    attached = _attach_article_urls(articles, links)
+
+    assert attached == 1
+    assert articles[0]["url"] == "https://example.com/news/retatrutide"
+
+
+def test_attach_article_urls_preserves_existing_source_alias():
+    articles = [{
+        "title": "Existing Article",
+        "article_url": "https://publisher.example/original",
+    }]
+
+    attached = _attach_article_urls(articles, [])
+
+    assert attached == 0
+    assert articles[0]["url"] == "https://publisher.example/original"

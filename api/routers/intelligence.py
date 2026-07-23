@@ -325,7 +325,10 @@ def _to_pharma_article(a: Dict[str, Any]) -> PharmaArticle:
     title = (a.get("title") or "").strip()
     summary = (a.get("summary") or "").strip()
     text = (a.get("content") or a.get("text") or a.get("body") or summary or "").strip()
-    url = (a.get("url") or a.get("link") or a.get("source_url") or "").strip()
+    url = (
+        a.get("url") or a.get("link") or a.get("source_url")
+        or a.get("article_url") or a.get("href") or ""
+    ).strip()
     source = (a.get("source") or "").strip()
     # Crawled articles carry recency in `published_date` / `time_ago`; older
     # payloads may use `published_at` / `published` / `date`. Capture whichever

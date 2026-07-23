@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import difflib
 import json
 import os
 import re
 import sys
 import threading
 import traceback
+import unicodedata
 from datetime import datetime, timezone, timedelta
 from queue import Queue
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -59,6 +62,80 @@ from . import db
 def _log(msg: str) -> None:
     """Print with flush to ensure Railway sees logs immediately."""
     print(msg, flush=True)
+
+
+def _normalise_headline(value: Any) -> str:
+    """Return a comparison-friendly headline without changing stored text."""
+    text = unicodedata.normalize("NFKC", str(value or "")).lower()
+    return " ".join(re.sub(r"[^\w]+", " ", text).split())
+
+
+def _attach_article_urls(
+    articles: List[Dict[str, Any]],
+    article_links: List[Dict[str, Any]],
+) -> int:
+    """Attach crawler-discovered URLs to extracted articles by headline.
+
+    The crawler already knows the exact destination for every listing link. The
+    LLM is still asked to return ``url``, but this deterministic reconciliation
+    prevents a missing model field from erasing the source link.
+    """
+    candidates = []
+    for link in article_links or []:
+        if not isinstance(link, dict):
+            continue
+        url = str(link.get("url") or "").strip()
+        headline = _normalise_headline(link.get("text"))
+        if url.startswith(("http://", "https://")) and headline:
+            candidates.append((headline, url))
+
+    attached = 0
+    used_urls: Set[str] = set()
+    for article in articles:
+        if not isinstance(article, dict):
+            continue
+
+        existing = str(
+            article.get("url")
+            or article.get("link")
+            or article.get("source_url")
+            or article.get("article_url")
+            or article.get("href")
+            or ""
+        ).strip()
+        if existing.startswith(("http://", "https://")):
+            article["url"] = existing
+            used_urls.add(existing)
+            continue
+
+        title = _normalise_headline(article.get("title"))
+        if not title:
+            continue
+
+        best_url = ""
+        best_score = 0.0
+        title_words = set(title.split())
+        for link_title, link_url in candidates:
+            if link_url in used_urls:
+                continue
+            if title == link_title:
+                best_url, best_score = link_url, 1.0
+                break
+
+            link_words = set(link_title.split())
+            common_words = title_words & link_words
+            if len(common_words) < 4:
+                continue
+            score = difflib.SequenceMatcher(None, title, link_title).ratio()
+            if score > best_score:
+                best_url, best_score = link_url, score
+
+        if best_url and best_score >= 0.78:
+            article["url"] = best_url
+            used_urls.add(best_url)
+            attached += 1
+
+    return attached
 
 
 # Default extraction model. Claude Sonnet has far higher recall than the old
@@ -352,12 +429,16 @@ async def _execute_job(job_id: str) -> None:
     cutoff_str = cutoff_ist.strftime("%B %-d, %Y %H:%M")    # 24h earlier
 
     # Schema fields
-    schema_fields = config.get("schema_fields", {})
+    schema_fields = copy.deepcopy(config.get("schema_fields") or {})
     if not schema_fields:
         schema_fields = {
             "type": "object",
             "properties": {
                 "title": {"type": "string", "description": "The news headline"},
+                "url": {
+                    "type": "string",
+                    "description": "The full original webpage URL shown for this article",
+                },
                 "source": {"type": "string", "description": "Publisher name"},
                 "category": {"type": "string", "description": "Topic category"},
                 "summary": {"type": "string", "description": "One-sentence summary"},
@@ -366,6 +447,17 @@ async def _execute_job(job_id: str) -> None:
             },
             "required": ["title"],
         }
+    else:
+        # Existing auto/custom jobs may predate the Source column. Augment their
+        # schema at runtime so scheduled jobs gain URLs without being recreated.
+        properties = schema_fields.setdefault("properties", {})
+        properties.setdefault(
+            "url",
+            {
+                "type": "string",
+                "description": "The full original webpage URL shown for this article",
+            },
+        )
 
     # LLM extraction
     default_instruction = (
@@ -389,6 +481,12 @@ async def _execute_job(job_id: str) -> None:
     max_output_tokens = int(config.get("max_output_tokens") or (8000 if _large_ctx else 4000))
     llm_timeout = int(config.get("llm_timeout") or 180)
 
+    extraction_instruction = config.get("extraction_instruction") or default_instruction
+    extraction_instruction += (
+        "\nFor every extracted article, include a `url` field containing the exact "
+        "full URL printed beside that article in the supplied content. Never invent a URL."
+    )
+
     extraction = LLMExtractionStrategy(
         llm_config=LLMConfig(
             provider=llm_provider,
@@ -396,7 +494,7 @@ async def _execute_job(job_id: str) -> None:
         ),
         schema=schema_fields,
         extraction_type="schema",
-        instruction=config.get("extraction_instruction") or default_instruction,
+        instruction=extraction_instruction,
         extra_args={"temperature": 0, "max_tokens": max_output_tokens, "timeout": llm_timeout},
         content_length_limit=content_limit,
     )
@@ -460,7 +558,6 @@ async def _execute_job(job_id: str) -> None:
             extracted = await smart_extract(
                 all_content,
                 run_conf,
-                deep_conf.filter_instruction,
                 apply_llm_noise_filter=apply_llm_noise_filter,
                 stats=extract_stats,
             )
@@ -483,7 +580,17 @@ async def _execute_job(job_id: str) -> None:
             if dropped:
                 _log(f"[engine] Job {job_id}: post-filter dropped {dropped} articles older than 24h "
                      f"({len(articles)} remain within last 24h of {now_str})")
-            # Re-serialise filtered list so it's what gets stored & emailed
+
+            url_candidates = deep_result.get("url_candidates", deep_result.get("article_links", []))
+            reconciled_urls = _attach_article_urls(articles, url_candidates)
+            with_urls = sum(1 for a in articles if a.get("url"))
+            _log(
+                f"[engine] Job {job_id}: source URLs present for {with_urls}/{len(articles)} "
+                f"articles ({reconciled_urls} restored from crawler links)"
+            )
+
+            # Re-serialise the filtered, URL-enriched list so it is what gets
+            # stored, emailed, and later consumed by Pharma Intelligence.
             extracted = json.dumps(articles)
 
         article_count = len(articles) if isinstance(articles, list) else 0
