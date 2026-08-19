@@ -12,6 +12,7 @@ from .filter import ExclusionFilter
 from .ontology import KEY_HIGHLIGHT_SCORE_THRESHOLD
 from .scorer import RelevanceScorer
 from .deduplicator import Deduplicator
+from .history import CoverageHistory
 from .summarizer import LeadershipSummarizer
 from .formatter import PharmaEmailFormatter
 
@@ -54,6 +55,8 @@ class PharmaIntelligenceResult:
     # into "Other News" rather than discarded, so coverage is never silently lost.
     demoted: bool = False
     demotion_reason: str = ""
+    # Set when this story was already published in a recent brief.
+    previously_covered_on: str = ""
     summary: str = ""
     headline: str = ""
     key_metric: Optional[str] = None
@@ -87,6 +90,7 @@ class PharmaIntelligenceResult:
             "is_key_highlight": self.is_key_highlight,
             "demoted": self.demoted,
             "demotion_reason": self.demotion_reason,
+            "previously_covered_on": self.previously_covered_on,
             "summary": self.summary,
             "headline": self.headline,
             "key_metric": self.key_metric,
@@ -108,12 +112,16 @@ class PharmaPipeline:
         run_deduplication: bool = True,
         key_highlight_threshold: int = KEY_HIGHLIGHT_SCORE_THRESHOLD,
         dimension_weights: Optional[Dict[str, int]] = None,
+        history: Optional[CoverageHistory] = None,
     ):
         self.llm_client = llm_client
         self.min_score = min_score_threshold
         self.run_dedup = run_deduplication
         self.key_highlight_threshold = key_highlight_threshold
         self.dimension_weights = dimension_weights
+        # Previously published coverage (last HISTORY_LOOKBACK_DAYS). Items that
+        # repeat prior coverage are demoted rather than dropped.
+        self.history = history
         self.extractor = EntityExtractor(llm_client)
         self.classifier = ArticleClassifier(llm_client)
         self.filter_ = ExclusionFilter(llm_client)
@@ -138,11 +146,16 @@ class PharmaPipeline:
         processed: List[Dict[str, Any]] = []
         demoted_count = 0
         excluded_count = 0
+        repeat_count = 0
         for article in articles:
             item = self._process_single(article)
             if item.excluded:
                 excluded_count += 1
                 continue
+            # Previously covered news (same molecule/story within the lookback
+            # window) is demoted to Other News unless it carries a new milestone.
+            if self._demote_if_previously_covered(item):
+                repeat_count += 1
             if item.demoted:
                 demoted_count += 1
             item_dict = item.to_dict()
@@ -151,8 +164,9 @@ class PharmaPipeline:
             item_dict["text"] = article.text or article.summary or article.title
             processed.append(item_dict)
         logger.info(
-            "[PharmaPipeline] %d articles retained (%d demoted, %d excluded out-of-scope)",
-            len(processed), demoted_count, excluded_count,
+            "[PharmaPipeline] %d articles retained (%d demoted, %d excluded out-of-scope, "
+            "%d previously covered)",
+            len(processed), demoted_count, excluded_count, repeat_count,
         )
         retained_before_dedup = len(processed)
         if self.run_dedup and processed:
@@ -167,8 +181,24 @@ class PharmaPipeline:
             "demoted_count": demoted_count,
             "excluded_count": excluded_count,
             "consolidated_count": consolidated_count,
+            "previously_covered_count": repeat_count,
         }
         return results
+
+    def _demote_if_previously_covered(self, item: PharmaIntelligenceResult) -> bool:
+        """Demote an item that repeats coverage already published recently."""
+        if not self.history:
+            return False
+        prior = self.history.find_previous_coverage(item.to_dict())
+        if not prior:
+            return False
+        item.demoted = True
+        item.is_key_highlight = False
+        item.previously_covered_on = prior.date_key
+        item.demotion_reason = (
+            f"Previously covered on {prior.date_key} with no new material development"
+        )
+        return True
 
     def _process_single(self, article: PharmaArticle) -> PharmaIntelligenceResult:
         result = PharmaIntelligenceResult(

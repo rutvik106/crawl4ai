@@ -91,6 +91,12 @@ EXCLUDE if primarily about:
   developments (incl. acquisitions of a manufacturing site)
 - AI-based collaborations UNLESS directly linked to a specific drug-development
   asset or pipeline value
+- Any M&A, merger, acquisition, collaboration, technology or AI partnership that
+  is NOT directly linked to pharmaceutical assets, drug-development programs,
+  clinical-stage molecules, licensing transactions, or pipeline value creation.
+  Example to EXCLUDE: a private-equity firm acquiring a software/technology
+  company (e.g. "M&A - Nordic Capital & Dassault Systemes"). If the transaction
+  does not change control of, or rights to, a drug asset/pipeline, exclude it.
 - Management / leadership / board appointments and departures
 - Market forecast / market-size reports
 - Webinar or conference PARTICIPATION announcements ("to join a webinar")
@@ -214,6 +220,12 @@ Requirements:
   DIFFERENTIATING factor versus existing/standard-of-care therapies (why this was
   approved over existing options and how it compared). Keep benchmarks grounded in
   the source article.
+- For CLINICAL DATA / TRIAL RESULTS news (no approval yet): you MUST (a) NAME the
+  specific trial(s) (e.g. "Phase III TRIUMPH-1 and TRANSCEND-T2D-1"), (b) give the
+  key efficacy outcomes with numbers (e.g. percent weight loss, A1C reduction,
+  timepoint), and (c) state the molecule's CURRENT development and global
+  regulatory status (e.g. "an investigational therapy in Phase III development with
+  no approvals globally yet"). Never present investigational data as an approval.
 - If an approval: state molecule, indication, geography, AND include one line on
   the product's existing regulatory footprint / geographical approvals across major
   regions (e.g. "already approved by the FDA and EMA"); note first-in-class status
@@ -256,6 +268,18 @@ MASH therapy, following patent expiry, and is currently conducting Phase III
 trials in India with a potential launch 12-18 months after expiry. The therapy
 is already FDA-approved for non-cirrhotic MASH with fibrosis; no innovative
 therapies are currently available in India, indicating strong unmet need."
+
+Example 5 (Phase III data readout for an INVESTIGATIONAL molecule - note the
+named trials, quantified outcomes, and the explicit development/regulatory
+status at the end):
+"Eli Lilly reported Phase III TRIUMPH-1 and TRANSCEND-T2D-1 results showing up
+to ~28.3% weight loss (70.3 lbs) at 80 weeks, along with significant A1C
+reduction (~2.0%) and improvements in obesity-related comorbidities (OSA, knee
+osteoarthritis). Eli Lilly also demonstrated broad cardiometabolic benefits
+including reductions in triglycerides, blood pressure, and waist circumference,
+with up to ~46% of patients achieving normoglycemia in T2D. Retatrutide is an
+investigational therapy in Phase III development with no approvals globally yet
+and is being evaluated across obesity, T2D, and related indications."
 
 Return JSON:
 {{

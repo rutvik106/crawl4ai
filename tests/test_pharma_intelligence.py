@@ -24,7 +24,7 @@ import types
 
 import pytest
 
-from crawl4ai.pharma_intelligence import PharmaArticle, PharmaPipeline
+from crawl4ai.pharma_intelligence import CoverageHistory, PharmaArticle, PharmaPipeline
 from crawl4ai.pharma_intelligence.formatter import PharmaEmailFormatter
 from crawl4ai.pharma_intelligence.classifier import ArticleClassifier
 from crawl4ai.pharma_intelligence.deduplicator import Deduplicator
@@ -186,6 +186,131 @@ def test_ai_collaboration_kept_when_linked_to_pipeline_asset():
     from crawl4ai.pharma_intelligence.ontology import is_scope_override
     assert is_scope_override("BigPharma AI collaboration to advance oncology pipeline drug candidate") is False
     assert is_scope_override("BigPharma announces AI collaboration for drug discovery platform") is True
+
+
+def test_non_pharma_transaction_is_excluded():
+    """Technology/AI deals with no pharma-asset linkage are out of scope
+    (client: 'M&A - Nordic Capital & Dassault Systemes' should not be included)."""
+    excluded, reason = ExclusionFilter(None).should_exclude(
+        "M&A - Nordic Capital & Dassault Systemes",
+        "Nordic Capital agreed to acquire a business unit from Dassault Systemes, "
+        "a software and 3D simulation platform provider.",
+    )
+    assert excluded is True
+    assert "scope" in reason.lower()
+
+
+@pytest.mark.parametrize("title,text", [
+    # A genuine pharma licensing deal named only by companies + value must survive.
+    ("Pfizer and Innovent sign global licensing deal worth up to $10.5 billion", ""),
+    ("Zydus acquires Assertio brands", "Zydus acquires a portfolio of products including medicines."),
+    ("Pfizer to acquire Seagen for $43 billion",
+     "Pfizer gains four approved cancer drugs and an antibody-drug conjugate pipeline."),
+])
+def test_genuine_pharma_transactions_are_retained(title, text):
+    excluded, _ = ExclusionFilter(None).should_exclude(title, text)
+    assert excluded is False
+
+
+@pytest.mark.parametrize("title,text", [
+    ("Antares Therapeutics and Novartis enter up to $1.9B precision cancer collaboration",
+     "The collaboration spans preclinical precision oncology programs."),
+    ("Eli Lilly and Abbisko enter $1.9B R&D collaboration for small molecules",
+     "The preclinical R&D collaboration covers small molecule programs."),
+])
+def test_valued_collaboration_survives_incidental_preclinical_mention(title, text):
+    """A strategic collaboration with a headline deal value is an in-scope asset
+    transaction and must not be dropped just because the body says 'preclinical'."""
+    excluded, _ = ExclusionFilter(None).should_exclude(title, text)
+    assert excluded is False
+
+    pipeline = PharmaPipeline(llm_client=None, min_score_threshold=10)
+    results = pipeline.process([PharmaArticle(title=title, text=text, url="https://x.com/a")])
+    assert len(results) == 1, "in-scope valued collaboration must be retained"
+
+
+def test_ai_transaction_linked_to_pipeline_asset_is_retained():
+    excluded, _ = ExclusionFilter(None).should_exclude(
+        "AstraZeneca AI collaboration covers clinical stage oncology molecule",
+        "The partnership is tied to a pipeline drug candidate.",
+    )
+    assert excluded is False
+
+
+# ── Previously-covered (cross-run) suppression ────────────────────────────────
+
+def _history_report(molecule: str, title: str, url: str = "", category: str = "FDA Approval"):
+    return {
+        "key_highlights": [{
+            "title": title, "headline": title, "molecule": molecule,
+            "primary_category": category, "url": url,
+        }],
+        "other_news": [],
+    }
+
+
+def test_previously_covered_item_is_demoted_not_dropped():
+    """Client feedback: Retatrutide was covered on 8 June and resurfaced 23 July.
+    A repeat is demoted into Other News, never silently dropped."""
+    history = CoverageHistory.from_reports([(
+        "2026-06-08",
+        _history_report(
+            "retatrutide",
+            "Eli Lilly reports Phase III retatrutide weight loss results",
+            category="Phase III Success",
+        ),
+    )])
+    article = PharmaArticle(
+        title="Eli Lilly reports Phase III retatrutide weight loss results",
+        text=(
+            "Eli Lilly reported Phase III TRIUMPH-1 results showing up to 28.3% weight "
+            "loss at 80 weeks for retatrutide, an investigational therapy."
+        ),
+        url="https://example.com/retatrutide",
+        source="Lilly",
+        published_at="2026-07-23",
+    )
+    pipeline = PharmaPipeline(llm_client=None, min_score_threshold=10, history=history)
+    results = pipeline.process([article])
+
+    assert len(results) == 1, "repeat must be demoted, not dropped"
+    item = results[0]
+    assert item.demoted is True
+    assert item.is_key_highlight is False
+    assert item.previously_covered_on == "2026-06-08"
+    assert "2026-06-08" in item.demotion_reason
+    assert pipeline.last_run_stats["previously_covered_count"] == 1
+
+
+def test_new_molecule_not_affected_by_history():
+    history = CoverageHistory.from_reports([(
+        "2026-06-08", _history_report("retatrutide", "Retatrutide Phase III data"),
+    )])
+    pipeline = PharmaPipeline(llm_client=None, min_score_threshold=10, history=history)
+    results = pipeline.process([HIGH_VALUE_ARTICLE])
+    assert len(results) == 1
+    assert results[0].previously_covered_on == ""
+
+
+def test_history_matches_on_identical_url():
+    history = CoverageHistory.from_reports([(
+        "2026-07-01",
+        _history_report("someothermol", "A different headline entirely",
+                        url="https://example.com/same-story"),
+    )])
+    entry = history.find_previous_coverage({
+        "title": "Totally unrelated wording here",
+        "url": "https://example.com/same-story",
+    })
+    assert entry is not None and entry.date_key == "2026-07-01"
+
+
+def test_empty_history_is_a_noop():
+    pipeline = PharmaPipeline(llm_client=None, min_score_threshold=10,
+                             history=CoverageHistory())
+    results = pipeline.process([HIGH_VALUE_ARTICLE])
+    assert len(results) == 1
+    assert results[0].demoted is False
 
 
 def test_asset_label_formats():
@@ -534,7 +659,7 @@ def test_formatter_renders_key_points():
 
 
 def test_formatter_matches_three_column_specimen():
-    """The email must be a SINGLE flat 3-column table per the client's specimen:
+    """Each section uses the client's 3-column specimen:
     Asset / Molecule | News Summary | Source ("Read the full article")."""
     pipeline = PharmaPipeline(llm_client=None, min_score_threshold=10)
     results = pipeline.process([HIGH_VALUE_ARTICLE])
@@ -545,14 +670,48 @@ def test_formatter_matches_three_column_specimen():
     assert "News Summary" in html
     assert ">Source<" in html
     assert "Read the full article" in html
-    # No Key Highlights / Other News section split in the flat layout.
-    assert "Key Highlights" not in html
-    assert "Other News" not in html
     # Old badges/columns must be gone.
     assert "DAILY BRIEF" not in html
     assert "Molecule/Particular" not in html
-    # Exactly one table header (single flat table).
-    assert html.count("Asset / Molecule") == 1
+
+
+def test_formatter_bifurcates_key_highlights_and_other_news():
+    """Daily Bites requires two sections: Key Highlights and Other News Highlights."""
+    items = [
+        {
+            "title": "Major approval", "summary": "An approval story.",
+            "is_key_highlight": True, "relevance_score": 80,
+            "url": "https://example.com/a", "entities": {"molecule": "alphamab"},
+        },
+        {
+            "title": "Minor update", "summary": "A lesser story.",
+            "is_key_highlight": False, "relevance_score": 20,
+            "url": "https://example.com/b", "entities": {"molecule": "betamab"},
+        },
+    ]
+    html = PharmaEmailFormatter().format_report(items)
+
+    assert "Key Highlights" in html
+    assert "Other News Highlights" in html
+    # Both sections render the 3-column header.
+    assert html.count("Asset / Molecule") == 2
+    # Key Highlights section must appear before Other News Highlights.
+    assert html.index("Key Highlights") < html.index("Other News Highlights")
+    # Each row keeps its source hyperlink.
+    assert html.count("Read the full article") == 2
+
+
+def test_formatter_renders_source_link_from_alternate_keys():
+    """The Source column must never be blank when a link exists under another key
+    (regression: client reported an empty Source column)."""
+    html = PharmaEmailFormatter().format_report([
+        {"title": "Story A", "summary": "s", "link": "https://example.com/a"},
+        {"title": "Story B", "summary": "s", "article_url": "https://example.com/b"},
+        {"title": "Story C", "summary": "s", "entities": {"url": "https://example.com/c"}},
+    ])
+    assert html.count("Read the full article") == 3
+    for path in ("/a", "/b", "/c"):
+        assert f"https://example.com{path}" in html
 
 
 def test_formatter_preserves_asset_label_after_json_round_trip():

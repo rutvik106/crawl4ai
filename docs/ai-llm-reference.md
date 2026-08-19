@@ -197,7 +197,8 @@ Returns `total_score`, `breakdown` dict, and `score_rationale` (one sentence). E
 **Downstream effect:**
 - `is_key_highlight` is set when `total_score` ≥ the configured Key Highlight threshold (default 60), with a lower, evidence/strategic/India-gated bar for immature-status items (Priority Review, filing acceptance, designation) — see `RelevanceScorer._determine_key_highlight()`. Positive regulatory recommendations (e.g. CHMP) now score highly enough to qualify as Key Highlights.
 - In-scope articles with `total_score < min_score_threshold` (default 10) are demoted (kept, ranked lower). Out-of-scope articles are dropped upstream by the filter.
-- Output is a single flat table sorted by descending score (key highlights lead).
+- Output is bifurcated into two sections — "Key Highlights" and "Other News Highlights" — each sorted by descending score and rendered with the same 3-column table.
+- Items repeating coverage published in the last 30 days are demoted into Other News (see `history.py`).
 
 **Fallback:** `RelevanceScorer._score_with_rules()` — regex/keyword heuristics compute each dimension on the *default* 30/20/20/15/15 scale, then `_scale_to_configured_weights()` proportionally rescales them onto whatever weights are actually configured.
 
@@ -418,13 +419,17 @@ Web URL
   ├── [Deduplicator]  ←── Prompt 3.1 (system) + 3.7 (user)  [ambiguous pairs only]
   │     → clusters articles → merged cards with sources[]
   │
+  ├── [CoverageHistory · history.py]  (no LLM — rule-based)
+  │     → compares against briefs from the last 30 days;
+  │       previously covered stories → demoted (never dropped)
+  │
   └── Layer 5: [LeadershipSummarizer]  ←── Prompt 3.1 (system) + 3.6 (user)
         → summary (2-3 sentences), headline, key_metric, key_points[]
               │
               ▼
         [PharmaEmailFormatter]
-        Single flat 3-column table: Asset/Molecule | News Summary | Source
-        (sorted by score; key highlights lead)
+        Two sections (Key Highlights, Other News Highlights), each a
+        3-column table: Asset/Molecule | News Summary | Source
               │
               ▼
         Stored in pharma_results (PostgreSQL)

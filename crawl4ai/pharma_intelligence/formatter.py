@@ -8,12 +8,19 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
 
 
-# Single flat-table style. Kept Outlook-friendly: only widely-supported inline
-# styles, table layout, no border-radius / box-shadow (Outlook ignores those and
-# they can break a clean copy-paste into an email).
+# Kept Outlook-friendly: only widely-supported inline styles, table layout, no
+# border-radius / box-shadow (Outlook ignores those and they can break a clean
+# copy-paste into an email).
 TABLE_STYLE = {
     "header_bg": "#0f3d52",
     "row_accent": "#f8fafc",
+}
+
+# Daily Bites bifurcates the brief into two sections. Each section uses the same
+# 3-column layout (Asset / Molecule | News Summary | Source).
+SECTION_STYLES = {
+    "key_highlight": {"header_bg": "#0f3d52", "row_accent": "#e8f3f7"},
+    "other_news": {"header_bg": "#475569", "row_accent": "#f8fafc"},
 }
 
 
@@ -26,15 +33,24 @@ class PharmaEmailFormatter:
     ) -> str:
         if report_date is None:
             report_date = date.today()
-        # Single flat table: rank by relevance (key highlights lead as the
-        # top-scored items). No Key/Other sections and no category grouping.
-        ranked = sorted(
-            items,
-            key=lambda x: (not x.get("is_key_highlight"), x.get("relevance_score", 0) * -1),
+        # Daily Bites format: bifurcate into "Key Highlights" and "Other News
+        # Highlights", each rendered with the same 3-column table.
+        by_score = lambda x: x.get("relevance_score", 0)  # noqa: E731
+        highlights = sorted(
+            [i for i in items if i.get("is_key_highlight")], key=by_score, reverse=True
+        )
+        other = sorted(
+            [i for i in items if not i.get("is_key_highlight")], key=by_score, reverse=True
         )
         html_parts = [self._render_header(title, report_date)]
-        if ranked:
-            html_parts.append(self._render_table(ranked))
+        if highlights:
+            html_parts.append(
+                self._render_section("Key Highlights", highlights, "key_highlight")
+            )
+        if other:
+            html_parts.append(
+                self._render_section("Other News Highlights", other, "other_news")
+            )
         html_parts.append(self._render_footer())
         return "\n".join(html_parts)
 
@@ -90,7 +106,10 @@ class PharmaEmailFormatter:
             "is_key_highlight": item.get("is_key_highlight", False),
             "demoted": item.get("demoted", False),
             "demotion_reason": item.get("demotion_reason", ""),
-            "url": item.get("url", ""),
+            "previously_covered_on": item.get("previously_covered_on", ""),
+            # Resolve the link at persist time so the stored report always keeps a
+            # usable source URL for the "Read the full article" cell.
+            "url": cls._pick_article_url(item) or item.get("url", ""),
             "source": item.get("source", ""),
             "sources": item.get("sources", []),
             "is_consolidated": item.get("is_consolidated", False),
@@ -130,13 +149,20 @@ class PharmaEmailFormatter:
 </body></html>
 """
 
-    def _render_table(self, items: List[Dict]) -> str:
-        style = TABLE_STYLE
+    def _render_section(self, section_title: str, items: List[Dict], style_key: str) -> str:
+        style = SECTION_STYLES[style_key]
         rows = "".join(self._render_row(item, style) for item in items)
-        # Single 3-column layout per the client's specimen:
+        # 3-column layout per the client's specimen:
         #   Asset / Molecule | News Summary | Source
         return f"""\
-<tr><td style="padding:0 32px 20px;">
+<tr><td style="padding:22px 32px 8px;">
+  <h2 style="margin:0;font-size:15px;font-weight:700;color:{style['header_bg']};
+             text-transform:uppercase;letter-spacing:0.5px;
+             border-bottom:2px solid {style['header_bg']};padding-bottom:8px;">
+    {escape(section_title)}
+  </h2>
+</td></tr>
+<tr><td style="padding:10px 32px 20px;">
 <table width="100%" cellpadding="0" cellspacing="0">
 <thead><tr style="background:{style['header_bg']};">
   <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#ffffff;width:24%;">Asset / Molecule</th>
@@ -215,13 +241,34 @@ class PharmaEmailFormatter:
             return ""
         return url if parsed.scheme in {"http", "https"} and parsed.netloc else ""
 
+    @classmethod
+    def _pick_article_url(cls, item: Dict) -> str:
+        """Resolve the article URL from any of the shapes an item may carry.
+
+        The Source column must always render the "Read the full article" link, so
+        a payload that stored the link under an alternate key (or nested under
+        ``entities``) must not silently produce an empty cell.
+        """
+        candidates = [
+            item.get("url"), item.get("link"), item.get("source_url"),
+            item.get("article_url"), item.get("href"),
+        ]
+        entities = item.get("entities") or {}
+        if isinstance(entities, dict):
+            candidates += [entities.get("url"), entities.get("link")]
+        for candidate in candidates:
+            safe = cls._safe_article_url(candidate)
+            if safe:
+                return safe
+        return ""
+
     def _render_row(self, item: Dict, style: Dict) -> str:
         entities = item.get("entities", {})
         asset_label = self._asset_label(item, entities)
         # The description is the primary content; everything extra (status/stage/
         # metric/source sub-lines) has been removed so the summary stands alone.
         summary = item.get("summary") or item.get("headline") or item.get("title") or ""
-        url = self._safe_article_url(item.get("url"))
+        url = self._pick_article_url(item)
 
         link_cell = (
             f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer" style="display:inline-block;'

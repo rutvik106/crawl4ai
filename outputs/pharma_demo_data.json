@@ -11,6 +11,7 @@
       "molecule": null,
       "brand_name": null,
       "counterparties": [],
+      "transaction_type": null,
       "company": null,
       "indication": null,
       "geography": null,
@@ -22,7 +23,7 @@
       ],
       "primary_category": "CDSCO Approval",
       "therapy_area": "Cardiovascular",
-      "summary": "The Central Drugs Standard Control Organization (CDSCO) has approved Zydus Lifesciences' generic version of sacubitril/valsartan, a combination drug used in the treatment of heart failure. This approval marks a significant milestone for the Indian pharmaceutical market as it is the first generic approval for this molecule in India. The drug, originally marketed by Novartis as Entresto, had global sales of over $5 billion in 2024. Zydus expects to launch the product within the next 60 days.",
+      "summary": "The Central Drugs Standard Control Organization (CDSCO) has approved Zydus Lifesciences' generic version of sacubitril/valsartan, a combination drug used in the treatment of heart failure. This approval marks a significant milestone for the Indian pharmaceutical market as it is the first generic approval for this molecule in India. The drug, originally marketed by Novartis as Entresto, had global sales of over $5 billion in 2024.",
       "key_points": [
         "Regulatory action involving CDSCO.",
         "The drug, originally marketed by Novartis as Entresto, had global sales of over $5 billion in 2024.",
@@ -41,6 +42,7 @@
       "is_key_highlight": true,
       "demoted": false,
       "demotion_reason": "",
+      "previously_covered_on": "",
       "url": "https://cdsco.gov.in/approvals/2025/zydus-sacubitril-valsartan",
       "source": "CDSCO",
       "sources": [
@@ -57,6 +59,7 @@
       "molecule": null,
       "brand_name": null,
       "counterparties": [],
+      "transaction_type": null,
       "company": null,
       "indication": null,
       "geography": null,
@@ -71,7 +74,7 @@
       ],
       "primary_category": "FDA Approval",
       "therapy_area": "Neurology",
-      "summary": "Food and Drug Administration has approved AstraZeneca's gene therapy for the treatment of metachromatic leukodystrophy (MLD), a rare and fatal inherited neurological disorder. The therapy, priced at $2.8 million per treatment, is the second gene therapy approved for MLD globally. The approval was based on data from 31 patients showing sustained clinical benefit at 3-year follow-up. AstraZeneca plans to seek EMA and CDSCO approvals in the next 6 months.",
+      "summary": "Food and Drug Administration has approved AstraZeneca's gene therapy for the treatment of metachromatic leukodystrophy (MLD), a rare and fatal inherited neurological disorder. The therapy, priced at $2.8 million per treatment, is the second gene therapy approved for MLD globally. The approval was based on data from 31 patients showing sustained clinical benefit at 3-year follow-up.",
       "key_points": [
         "Regulatory action involving FDA.",
         "The therapy, priced at $2.8 million per treatment, is the second gene therapy approved for MLD globally.",
@@ -91,6 +94,7 @@
       "is_key_highlight": true,
       "demoted": false,
       "demotion_reason": "",
+      "previously_covered_on": "",
       "url": "https://fda.gov/news-events/press-announcements/fda-approves-mld-gene-therapy",
       "source": "FDA",
       "sources": [
@@ -109,6 +113,7 @@
       "molecule": null,
       "brand_name": null,
       "counterparties": [],
+      "transaction_type": null,
       "company": null,
       "indication": null,
       "geography": null,
@@ -135,6 +140,7 @@
       "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
+      "previously_covered_on": "",
       "url": "https://glenmarkpharma.com/usfda-dermatology-approval",
       "source": "Glenmark",
       "sources": [
@@ -151,6 +157,7 @@
       "molecule": null,
       "brand_name": null,
       "counterparties": [],
+      "transaction_type": null,
       "company": null,
       "indication": null,
       "geography": null,
@@ -180,6 +187,7 @@
       "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
+      "previously_covered_on": "",
       "url": "https://biocon.com/clinical-trials/insulin-glargine-phase3",
       "source": "Biocon",
       "sources": [
@@ -196,6 +204,7 @@
       "molecule": null,
       "brand_name": null,
       "counterparties": [],
+      "transaction_type": "Acquisition",
       "company": null,
       "indication": null,
       "geography": null,
@@ -206,7 +215,7 @@
       ],
       "primary_category": "M&A Activity",
       "therapy_area": "Cardiovascular",
-      "summary": "Torrent Pharmaceuticals has announced the acquisition of Berlin-based specialty pharmaceutical company Heumann Pharma for €450 million. The acquisition gives Torrent access to Heumann's portfolio of 85 registered products across cardiovascular, CNS, and pain therapeutic areas in Germany and Eastern European markets. The transaction is expected to close in Q3 2025, subject to regulatory approvals. Heumann reported revenues of €180 million in 2024 with EBITDA margins of 28%.",
+      "summary": "Torrent Pharmaceuticals has announced the acquisition of Berlin-based specialty pharmaceutical company Heumann Pharma for €450 million. The acquisition gives Torrent access to Heumann's portfolio of 85 registered products across cardiovascular, CNS, and pain therapeutic areas in Germany and Eastern European markets. The transaction is expected to close in Q3 2025, subject to regulatory approvals.",
       "key_points": [
         "Torrent Pharmaceuticals has announced the acquisition of Berlin-based specialty pharmaceutical company Heumann Pharma for €450 million.",
         "The transaction is expected to close in Q3 2025, subject to regulatory approvals.",
@@ -225,6 +234,7 @@
       "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
+      "previously_covered_on": "",
       "url": "https://torrentpharma.com/investors/acquisitions/heumann-2025",
       "source": "Business Wire",
       "sources": [
@@ -241,6 +251,7 @@
       "molecule": null,
       "brand_name": null,
       "counterparties": [],
+      "transaction_type": null,
       "company": null,
       "indication": null,
       "geography": null,
@@ -268,6 +279,7 @@
       "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
+      "previously_covered_on": "",
       "url": "https://alembicpharmaceuticals.com/ema-oncology-approval",
       "source": "Alembic",
       "sources": [
@@ -284,6 +296,7 @@
       "molecule": null,
       "brand_name": null,
       "counterparties": [],
+      "transaction_type": null,
       "company": null,
       "indication": null,
       "geography": null,
@@ -295,7 +308,7 @@
       ],
       "primary_category": "Clinical Trial",
       "therapy_area": "Rare Disease",
-      "summary": "Lupin Limited has announced that its novel small molecule candidate for the treatment of Duchenne muscular dystrophy has received orphan drug designation from the FDA. The designation provides Lupin with 7 years of market exclusivity upon approval and waiver of FDA application fees. The candidate is currently in Phase II clinical trials with 48 patients enrolled across 12 sites in the US. Top-line results are expected in Q1 2026.",
+      "summary": "Lupin Limited has announced that its novel small molecule candidate for the treatment of Duchenne muscular dystrophy has received orphan drug designation from the FDA. The designation provides Lupin with 7 years of market exclusivity upon approval and waiver of FDA application fees. The candidate is currently in Phase II clinical trials with 48 patients enrolled across 12 sites in the US.",
       "key_points": [
         "Regulatory action involving FDA.",
         "Clinical stage: Phase II.",
@@ -315,6 +328,7 @@
       "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
+      "previously_covered_on": "",
       "url": "https://lupin.com/media/fda-orphan-drug-designation-2025",
       "source": "Lupin",
       "sources": [
@@ -331,6 +345,7 @@
       "molecule": null,
       "brand_name": null,
       "counterparties": [],
+      "transaction_type": "Licensing",
       "company": null,
       "indication": null,
       "geography": null,
@@ -356,6 +371,7 @@
       "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
+      "previously_covered_on": "",
       "url": "https://strides.com/licensing-emerging-markets-2025",
       "source": "Strides",
       "sources": [
@@ -372,6 +388,7 @@
       "molecule": null,
       "brand_name": null,
       "counterparties": [],
+      "transaction_type": null,
       "company": null,
       "indication": null,
       "geography": null,
@@ -381,7 +398,7 @@
       ],
       "primary_category": "FDA Approval",
       "therapy_area": "Cardiovascular",
-      "summary": "Reddy's Laboratories has launched its generic version of amlodipine/atorvastatin combination tablets in the US market. The product is the generic equivalent of Pfizer's Caduet. The company has received approval from USFDA for the abbreviated new drug application. The product was launched immediately following approval.",
+      "summary": "Reddy's Laboratories has launched its generic version of amlodipine/atorvastatin combination tablets in the US market. The product is the generic equivalent of Pfizer's Caduet. The company has received approval from USFDA for the abbreviated new drug application.",
       "key_points": [],
       "event_update": "Reddy's Laboratories has launched its generic version of amlodipine/atorvastatin combination tablets in the US market.",
       "evidence": null,
@@ -396,6 +413,7 @@
       "is_key_highlight": false,
       "demoted": false,
       "demotion_reason": "",
+      "previously_covered_on": "",
       "url": "https://drreddys.com/news/us-launch-caduet-generic",
       "source": "Dr. Reddy's",
       "sources": [
@@ -405,7 +423,7 @@
       "published_at": "2025-06-18"
     }
   ],
-  "generated_at": "2026-07-20",
+  "generated_at": "2026-08-19",
   "demoted_count": 0,
   "consolidated_count": 0,
   "excluded_count": 3,

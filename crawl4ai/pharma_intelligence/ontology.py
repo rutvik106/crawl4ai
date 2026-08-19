@@ -180,6 +180,13 @@ STRONG_INCLUDE_PATTERNS: List[str] = [
     r"\bacquisi",
     r"\bmerger\b",
     r"\blicensing.*deal\b",
+    # Strategic collaborations / licensing carrying a headline deal value are
+    # in-scope transactions ("asset transfers involving pipeline products"), so
+    # they must reach scoring even when the body incidentally mentions
+    # "preclinical". Non-pharma/AI/tech deals are already removed earlier by
+    # is_scope_override(), which runs before these include signals.
+    r"\b(?:collaborat\w*|partnership|licens\w*|alliance|joint venture)\b.{0,80}(?:\$|usd\s*|₹)\s?[\d.,]+\s*(?:b\b|bn\b|billion|m\b|mn\b|million|cr\b|crore)",
+    r"(?:\$|usd\s*|₹)\s?[\d.,]+\s*(?:b\b|bn\b|billion|m\b|mn\b|million|cr\b|crore).{0,80}\b(?:collaborat\w*|partnership|licens\w*|alliance|joint venture)\b",
     r"\borphan drug.*designat",
     r"\bfast track.*designat",
     r"\bbreakthrough.*therapy.*designat",
@@ -247,6 +254,57 @@ _DRUG_ASSET_CONTEXT = re.compile(
     re.IGNORECASE,
 )
 
+# ── Transactions must be linked to pharmaceutical assets ────────────────────────
+# The client covers M&A / licensing / collaborations / asset transfers ONLY when
+# they involve pharmaceutical assets, drug-development programs, clinical-stage
+# molecules or pipeline value creation. Technology / software / AI / data deals
+# (e.g. "M&A - Nordic Capital & Dassault Systemes") are out of scope even though
+# "acquires"/"merger" is otherwise a strong-include signal.
+_TRANSACTION_SIGNAL = re.compile(
+    r"\b(?:acquir\w*|acquisition|merger|merges?|buy(?:s|out)?|takeover|"
+    r"licens\w*|collaborat\w*|partnership|partners? with|alliance|joint venture|"
+    r"divest\w*|stake|asset transfer)\b",
+    re.IGNORECASE,
+)
+
+# Asset-level pharma context. Deliberately excludes generic industry words like
+# "pharmaceutical industry" or "life sciences", which a technology vendor's press
+# release routinely mentions without any actual drug asset being transacted.
+_PHARMA_ASSET_CONTEXT = re.compile(
+    r"\b(?:drug|drugs|therapy|therapies|therapeutic\w*|medicine|medicines|"
+    r"molecule|compound|pipeline|clinical|phase\s*(?:i{1,3}|[1-4])|indication|"
+    r"vaccine|biosimilar|generic|biologic\w*|antibody|inhibitor|"
+    r"active pharmaceutical ingredient|\bapi\b|formulation|"
+    r"nda|bla|maa|anda|oncology|portfolio of (?:products|brands|medicines))\b",
+    re.IGNORECASE,
+)
+
+# Explicit technology / non-pharma deal markers.
+_NON_PHARMA_DEAL_CONTEXT = re.compile(
+    r"\b(?:software|saas|platform|simulation|3d|cloud|data analytics|analytics|"
+    r"digital|\bit\b|information technology|semiconductor|cyber\w*|"
+    r"artificial intelligence|machine learning|\bai\b)\b",
+    re.IGNORECASE,
+)
+
+
+def is_non_pharma_transaction(text: str) -> bool:
+    """A technology/AI/data deal with no pharmaceutical-asset linkage is out of scope.
+
+    Deliberately requires an *explicit* non-pharma marker (software, platform, AI,
+    analytics, ...) rather than merely the absence of a drug word. Many genuine
+    pharma headlines name only the companies and the deal value (e.g. "Pfizer and
+    Innovent sign a global licensing deal worth up to $10.5 billion"), so
+    excluding on absence alone would drop real coverage. Ambiguous cases are left
+    to the LLM exclusion check, which can read the full body.
+    """
+    combined = text[:2000]
+    if not _TRANSACTION_SIGNAL.search(combined):
+        return False
+    if _PHARMA_ASSET_CONTEXT.search(combined):
+        return False
+    return bool(_NON_PHARMA_DEAL_CONTEXT.search(combined))
+
 COMPILED_SCOPE_OVERRIDES = [
     re.compile(p, re.IGNORECASE) for p in SCOPE_OVERRIDE_PATTERNS
 ]
@@ -266,7 +324,8 @@ def is_scope_override(text: str) -> bool:
     """Definitively out-of-scope categories that override include signals.
 
     Returns True for manufacturing/facility developments (incl. site
-    acquisitions), AI-only collaborations, leadership changes, market-forecast
+    acquisitions), transactions with no pharmaceutical-asset linkage
+    (technology/software/AI deals), AI-only collaborations, leadership changes, market-forecast
     reports and webinar/participation announcements. AI collaborations are NOT
     overridden when the text clearly ties them to a named drug/pipeline asset.
     """
@@ -279,7 +338,8 @@ def is_scope_override(text: str) -> bool:
             if _DRUG_ASSET_CONTEXT.search(combined):
                 continue
         return True
-    return False
+    # Deals/collaborations with no pharmaceutical-asset linkage are out of scope.
+    return is_non_pharma_transaction(combined)
 
 
 # ── Shared regulatory-milestone detector ───────────────────────────────────────

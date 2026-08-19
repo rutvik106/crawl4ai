@@ -32,7 +32,9 @@ from pydantic import BaseModel
 
 from api.auth import get_current_user
 from crawl4ai.pharma_intelligence import (
+    HISTORY_LOOKBACK_DAYS,
     IST,
+    CoverageHistory,
     PharmaArticle,
     PharmaEmailFormatter,
     PharmaPipeline,
@@ -132,6 +134,60 @@ def _get_result(date_str: str) -> Optional[Dict[str, Any]]:
         return None
     result = row["result"]
     return result if isinstance(result, dict) else json.loads(result)
+
+
+def _load_coverage_history(
+    date_str: str, lookback_days: int = HISTORY_LOOKBACK_DAYS
+) -> CoverageHistory:
+    """Load the previously published briefs preceding ``date_str``.
+
+    Used to avoid resurfacing news already covered in the recent past (client
+    feedback: Retatrutide was covered on 8 June and reappeared on 23 July).
+    """
+    # History is an enhancement, never a hard dependency: a storage problem must
+    # not abort the brief, so every failure degrades to "no history".
+    conn = None
+    try:
+        _ensure_tables()
+        conn = _connect()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT date_key, result FROM pharma_results
+                WHERE date_key < %s
+                  AND date_key >= to_char(%s::date - %s::int, 'YYYY-MM-DD')
+                ORDER BY date_key DESC
+                """,
+                (date_str, date_str, lookback_days),
+            )
+            rows = cur.fetchall()
+    except Exception as e:
+        logger.warning(
+            "[intelligence] Could not load coverage history for %s (%s: %s); "
+            "proceeding without history",
+            date_str, type(e).__name__, e,
+        )
+        return CoverageHistory()
+    finally:
+        if conn is not None:
+            conn.close()
+
+    reports: List[tuple] = []
+    for row in rows:
+        result = row.get("result")
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except Exception:
+                continue
+        if isinstance(result, dict):
+            reports.append((row.get("date_key"), result))
+    history = CoverageHistory.from_reports(reports)
+    logger.info(
+        "[intelligence] %s: coverage history loaded from %d prior briefs (%d items)",
+        date_str, len(reports), len(history.entries),
+    )
+    return history
 
 
 def _store_result(date_str: str, result: Dict[str, Any]) -> None:
@@ -487,6 +543,7 @@ def _generate_report(date_str: str, articles: Optional[List[PharmaArticle]] = No
             "key_highlight_score_threshold", KEY_HIGHLIGHT_SCORE_THRESHOLD
         ),
         dimension_weights=pharma_cfg.get("dimension_weights", DEFAULT_DIMENSION_WEIGHTS),
+        history=_load_coverage_history(date_str),
     )
     results = pipeline.process(articles)
 
@@ -499,6 +556,7 @@ def _generate_report(date_str: str, articles: Optional[List[PharmaArticle]] = No
     )
     summary["consolidated_count"] = stats.get("consolidated_count", 0)
     summary["excluded_count"] = stats.get("excluded_count", 0)
+    summary["previously_covered_count"] = stats.get("previously_covered_count", 0)
     _store_result(date_str, summary)
     return summary
 
