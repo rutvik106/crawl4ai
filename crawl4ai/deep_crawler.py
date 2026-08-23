@@ -380,7 +380,7 @@ async def smart_extract(
     instruction: str = "",
     screenshots: Optional[List[str]] = None,
     apply_llm_noise_filter: bool = False,
-    stats: Optional[Dict[str, int]] = None,
+    stats: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Run LLM extraction on aggregated content with smart filtering.
 
@@ -413,15 +413,24 @@ async def smart_extract(
     # Check if content fits in context window
     content_limit = strategy.content_length_limit or 12000
 
+    # Count LLM calls vs. failures so the caller can tell "the site had no news"
+    # apart from "every LLM call errored" — the two are indistinguishable from an
+    # empty result set, and conflating them hid a broken deployment for days.
+    llm_calls = 0
+    llm_errors = 0
+    last_error = ""
+
     if len(all_content) <= content_limit:
         # Fits — extract directly
         print(f"[smart_extract] Content fits ({len(all_content)} <= {content_limit}), extracting directly...")
+        llm_calls = 1
         try:
             result = await strategy.aextract("aggregated", all_content)
             print(f"[smart_extract] LLM returned {len(result) if result else 0} chars")
             print(f"[smart_extract] LLM preview: {str(result)[:200]}")
         except Exception as e:
             print(f"[smart_extract] LLM extract ERROR: {e}")
+            llm_errors, last_error = 1, str(e)
             result = "[]"
         all_extracted = _parse_articles_lenient(result)
         if not all_extracted:
@@ -435,11 +444,13 @@ async def smart_extract(
 
         for i, chunk in enumerate(chunks):
             print(f"[smart_extract] Extracting chunk {i+1}/{len(chunks)} ({len(chunk)} chars)...")
+            llm_calls += 1
             try:
                 extracted = await strategy.aextract("aggregated", chunk)
                 print(f"[smart_extract]   Chunk {i+1} returned {len(extracted) if extracted else 0} chars")
             except Exception as e:
                 print(f"[smart_extract]   Chunk {i+1} ERROR: {e}")
+                llm_errors, last_error = llm_errors + 1, str(e)
                 continue
             items = _parse_articles_lenient(extracted)
             all_extracted.extend(items)
@@ -478,6 +489,10 @@ async def smart_extract(
         stats["deduped"] = len(unique)
         stats["heuristic_kept"] = heuristic_kept
         stats["llm_kept"] = len(cleaned)
+        stats["llm_calls"] = llm_calls
+        stats["llm_errors"] = llm_errors
+        if last_error:
+            stats["llm_last_error"] = last_error
 
     return json.dumps(cleaned, indent=2, ensure_ascii=False)
 

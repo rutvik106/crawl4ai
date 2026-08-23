@@ -554,7 +554,7 @@ async def _execute_job(job_id: str) -> None:
 
             # Smart extraction with noise filtering
             _log(f"[engine] Job {job_id} step 4/5: smart_extract starting...")
-            extract_stats: Dict[str, int] = {}
+            extract_stats: Dict[str, Any] = {}
             extracted = await smart_extract(
                 all_content,
                 run_conf,
@@ -607,6 +607,28 @@ async def _execute_job(job_id: str) -> None:
             f"llm_kept={extract_stats.get('llm_kept', 0)} → "
             f"within_24h={article_count}"
         )
+
+        # ── Distinguish infrastructure failure from a genuinely quiet news day ──
+        # "0 articles" used to be reported as a successful run whether the sites
+        # published nothing or every LLM call blew up, so a broken deployment
+        # looked identical to a slow news day and went unnoticed for days.
+        llm_calls = int(extract_stats.get("llm_calls", 0) or 0)
+        llm_errors = int(extract_stats.get("llm_errors", 0) or 0)
+        failure_reason = ""
+        if llm_calls and llm_errors >= llm_calls:
+            failure_reason = (
+                f"LLM extraction failed on all {llm_calls} call(s); no articles could be "
+                f"parsed. Last error: {extract_stats.get('llm_last_error', 'unknown')}"
+            )
+        elif content_len == 0:
+            listing_err = getattr(listing, "error_message", "") if listing else ""
+            failure_reason = (
+                "Crawl returned no page content, so there was nothing to extract "
+                f"(the site is likely blocking the crawler). {listing_err}".strip()
+            )
+        if failure_reason:
+            _log(f"[engine] Job {job_id} EXTRACTION FAILURE: {failure_reason}")
+
         _log(f"[engine] Job {job_id} step 5/5: saving {article_count} articles to outputs...")
 
         # Generate AI summary if requested and articles are available
@@ -657,12 +679,16 @@ async def _execute_job(job_id: str) -> None:
         manager.save(final_result)
         manager.finalize()
 
-        status = "completed"
+        # A run that produced nothing because extraction broke is a failure, not a
+        # completed run with no news — surface it on the dashboard so it gets fixed.
+        status = "failed" if (failure_reason and article_count == 0) else "completed"
         update_kwargs: dict = {
             "status": status,
             "finished_at": datetime.now().isoformat(),
             "article_count": article_count,
         }
+        if status == "failed":
+            update_kwargs["error"] = failure_reason
         # Persist extracted articles for consolidated report retrieval
         if isinstance(articles, list) and article_count > 0:
             update_kwargs["extracted_articles"] = articles

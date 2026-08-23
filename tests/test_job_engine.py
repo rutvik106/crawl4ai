@@ -182,3 +182,91 @@ def test_attach_article_urls_preserves_existing_source_alias():
 
     assert attached == 0
     assert articles[0]["url"] == "https://publisher.example/original"
+
+
+# ── Fix 5: a broken LLM must not masquerade as "no news today" ──
+#
+# Regression guard for the outage where litellm/pydantic became incompatible and
+# every completion() raised. smart_extract swallowed the errors, returned zero
+# articles, and the job was recorded as "completed" — indistinguishable from a
+# quiet news day, so three days of empty briefs went unnoticed.
+
+
+def _mock_strategy(limit=50000, side_effect=None, return_value=None):
+    strategy = MagicMock(spec=LLMExtractionStrategy)
+    strategy.content_length_limit = limit
+    strategy.instruction = "test"
+    strategy.schema = None
+    strategy.aextract = AsyncMock(side_effect=side_effect, return_value=return_value)
+    return strategy
+
+
+def _run_conf(strategy):
+    from crawl4ai.crawler_run_config import CrawlerRunConfig
+    return CrawlerRunConfig(extraction_strategy=strategy)
+
+
+@pytest.mark.asyncio
+async def test_smart_extract_reports_llm_failures_in_stats():
+    """Every LLM call failing must be visible in stats, not silently swallowed."""
+    boom = RuntimeError(
+        "litellm.APIConnectionError: `Message` is not fully defined; you should "
+        "define `ChatCompletionReasoningSummaryTextBlock`"
+    )
+    strategy = _mock_strategy(side_effect=boom)
+    stats = {}
+
+    result = await smart_extract("Plenty of real news content here", _run_conf(strategy), stats=stats)
+
+    assert json.loads(result) == []
+    assert stats["llm_calls"] == 1
+    assert stats["llm_errors"] == 1
+    assert "Message` is not fully defined" in stats["llm_last_error"]
+
+
+@pytest.mark.asyncio
+async def test_smart_extract_reports_llm_failures_across_all_chunks():
+    """Chunked extraction must count a failure for each failed chunk."""
+    # _chunk_content splits on blank lines, so the content needs real paragraphs.
+    content = "\n\n".join(["A" * 80] * 5)
+    strategy = _mock_strategy(limit=100, side_effect=RuntimeError("api exploded"))
+    stats = {}
+
+    await smart_extract(content, _run_conf(strategy), stats=stats)
+
+    assert stats["llm_calls"] == 5
+    assert stats["llm_errors"] == stats["llm_calls"]
+    assert stats["llm_last_error"] == "api exploded"
+
+
+@pytest.mark.asyncio
+async def test_smart_extract_records_zero_errors_on_a_quiet_news_day():
+    """A working LLM that legitimately finds nothing must NOT look like a failure."""
+    strategy = _mock_strategy(return_value="[]")
+    stats = {}
+
+    await smart_extract("Some content with no fresh news", _run_conf(strategy), stats=stats)
+
+    assert stats["llm_calls"] == 1
+    assert stats["llm_errors"] == 0
+    assert "llm_last_error" not in stats
+
+
+@pytest.mark.asyncio
+async def test_smart_extract_partial_chunk_failure_keeps_articles():
+    """One bad chunk must not discard the articles recovered from healthy chunks."""
+    content = "\n\n".join(["A" * 80] * 3)
+    strategy = _mock_strategy(
+        limit=100,
+        side_effect=[
+            RuntimeError("chunk 1 died"),
+            '[{"title": "A Real Recovered Headline"}]',
+            '[{"title": "Another Genuine Headline Here"}]',
+        ],
+    )
+    stats = {}
+
+    result = await smart_extract(content, _run_conf(strategy), stats=stats)
+
+    assert stats["llm_errors"] < stats["llm_calls"]
+    assert any(a["title"] == "A Real Recovered Headline" for a in json.loads(result))

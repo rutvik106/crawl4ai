@@ -3,9 +3,18 @@ playwright>=1.40.0
 html2text>=2024.2.26
 beautifulsoup4>=4.12.0
 lxml>=5.1.0
-litellm>=1.30.0
-anthropic>=0.40.0
-pydantic>=2.0.0
+# litellm and pydantic are pinned together on purpose. litellm >=1.9x allows
+# pydantic 2.13, but its Message model leaves `ChatCompletionReasoningSummaryTextBlock`
+# as an unresolved forward ref on Python 3.10/3.11, so every completion() call dies
+# with "PydanticUserError: `Message` is not fully defined" (BerriAI/litellm#36384).
+# That surfaced as scheduled jobs silently returning 0 articles once a rebuild
+# re-resolved these previously-unbounded ranges. litellm 1.83.4 pins pydantic==2.12.5.
+litellm==1.83.4
+# Capped below 1.0: the pharma brief falls back to rule-based processing when the
+# Anthropic client raises, so an unvetted major bump would silently degrade output
+# rather than fail loudly. 0.116.x is the verified series.
+anthropic>=0.40.0,<1.0
+pydantic==2.12.5
 aiohttp>=3.9.0
 psutil>=5.9.0
 apscheduler>=3.9.0
