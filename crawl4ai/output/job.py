@@ -48,7 +48,8 @@ def create_job_outputs(
     title: str = "Crawl4AI Report",
     email_to: Optional[str] = None,
     email_subject: Optional[str] = None,
-    # Legacy SMTP params kept for backwards compatibility but ignored
+    # When supplied, email is delivered over SMTP; otherwise EmailOutput falls
+    # back to the HTTP email API.
     smtp_host: Optional[str] = None,
     smtp_port: int = 587,
     smtp_user: Optional[str] = None,
@@ -82,6 +83,11 @@ def create_job_outputs(
         backends.append(EmailOutput(
             to=email_to,
             subject=email_subject or f"{title}",
+            smtp_host=smtp_host,
+            smtp_port=smtp_port,
+            smtp_user=smtp_user,
+            smtp_password=smtp_password,
+            smtp_from=smtp_from,
         ))
 
     return job_id, job_dir, backends

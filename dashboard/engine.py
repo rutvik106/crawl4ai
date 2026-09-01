@@ -365,12 +365,17 @@ async def _execute_job(job_id: str) -> None:
     recipients = config.get("recipients", "")
     email_subject = config.get("email_subject") or f"IntelliFetch News Digest: {job['name']}"
 
+    smtp_config = db.get_smtp_config(settings)
+    if recipients and not smtp_config.get("smtp_host"):
+        _log(f"[engine] Job {job_id}: no SMTP host configured — email will use the "
+             f"HTTP API fallback")
     _, _, outputs = create_job_outputs(
         project_root=project_root,
         job_id=job_id,
         title=job["name"],
         email_to=recipients if recipients else None,
         email_subject=email_subject,
+        **smtp_config,
     )
 
     # Vercel Blob Storage — upload artifacts after local backends write them

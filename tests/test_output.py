@@ -150,3 +150,113 @@ class TestOutputManager:
         manager.save_many([_make_result(url="https://a.com"), _make_result(url="https://b.com")])
         with open(json_path) as f:
             assert len(json.load(f)) == 2
+
+
+# ── EmailOutput transport selection ──
+#
+# Regression guard for the outage where the hardcoded HTTP email API started
+# returning "HTTP 401 Invalid or expired token". Every digest and pharma brief
+# was blocked because that endpoint was the only transport and needs a bearer
+# token callers cannot supply. SMTP is now primary; the API is a fallback.
+
+SMTP_CREDS = {
+    "smtp_host": "smtp.example.com",
+    "smtp_port": 587,
+    "smtp_user": "sender@example.com",
+    "smtp_password": "secret",
+}
+
+
+class TestEmailOutputTransport:
+    def _result(self):
+        return _make_result(extracted=json.dumps([{"title": "A Real Headline Here"}]))
+
+    def test_smtp_used_when_configured(self):
+        from crawl4ai.output.email_output import EmailOutput
+
+        out = EmailOutput(to="a@b.com", **SMTP_CREDS)
+        assert out.smtp_configured
+        sent, api_calls = [], []
+        out._send_via_smtp = lambda r, h: sent.append(r)
+        out._send_via_api = lambda r, h: api_calls.append(r)
+
+        out.save(self._result())
+        out.finalize()
+
+        assert sent == ["a@b.com"]
+        assert api_calls == [], "SMTP succeeded, so the HTTP API must not be called"
+
+    def test_falls_back_to_api_when_smtp_not_configured(self):
+        from crawl4ai.output.email_output import EmailOutput
+
+        out = EmailOutput(to="a@b.com")
+        assert not out.smtp_configured
+        api_calls = []
+        out._send_via_api = lambda r, h: api_calls.append(r)
+
+        out.save(self._result())
+        out.finalize()
+
+        assert api_calls == ["a@b.com"]
+
+    def test_falls_back_to_api_when_smtp_raises(self):
+        from crawl4ai.output.email_output import EmailOutput
+
+        out = EmailOutput(to="a@b.com", **SMTP_CREDS)
+        api_calls = []
+
+        def _boom(recipient, html):
+            raise OSError("connection refused")
+
+        out._send_via_smtp = _boom
+        out._send_via_api = lambda r, h: api_calls.append(r)
+
+        out.save(self._result())
+        out.finalize()
+
+        assert api_calls == ["a@b.com"], "a failed SMTP send must still attempt delivery"
+
+    def test_smtp_message_is_multipart_with_html(self):
+        """The HTML body must survive as an alternative part, not be dropped."""
+        from crawl4ai.output.email_output import EmailOutput
+
+        captured = {}
+
+        class FakeServer:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def starttls(self): captured["starttls"] = True
+            def login(self, u, p): captured["login"] = (u, p)
+            def send_message(self, msg): captured["msg"] = msg
+
+        out = EmailOutput(to="a@b.com", subject="Digest", **SMTP_CREDS)
+        import crawl4ai.output.email_output as mod
+        original = mod.smtplib.SMTP
+        mod.smtplib.SMTP = lambda *a, **k: FakeServer()
+        try:
+            out._send_via_smtp("a@b.com", "<html><body>hi</body></html>")
+        finally:
+            mod.smtplib.SMTP = original
+
+        msg = captured["msg"]
+        assert captured["starttls"] is True
+        assert captured["login"] == ("sender@example.com", "secret")
+        assert msg["To"] == "a@b.com"
+        assert msg["From"] == "sender@example.com"
+        assert msg["Subject"] == "Digest"
+        assert "hi" in msg.get_payload()[1].get_payload()
+
+    def test_smtp_credentials_reach_email_backend_from_job_factory(self):
+        """create_job_outputs used to accept SMTP params and silently ignore them."""
+        from crawl4ai.output.job import create_job_outputs
+        from crawl4ai.output.email_output import EmailOutput
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, backends = create_job_outputs(
+                project_root=tmp, title="T", email_to="a@b.com", **SMTP_CREDS
+            )
+        mailer = next(b for b in backends if isinstance(b, EmailOutput))
+        assert mailer.smtp_configured
+        assert mailer.smtp_host == "smtp.example.com"
+        assert mailer.smtp_from == "sender@example.com", "From should default to the user"

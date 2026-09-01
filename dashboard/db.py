@@ -448,6 +448,34 @@ def get_all_settings() -> Dict[str, str]:
     return {r["key"]: r["value"] for r in rows}
 
 
+def get_smtp_config(settings: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Resolve SMTP credentials as kwargs for ``EmailOutput``.
+
+    Saved settings win over environment variables, matching how API keys are
+    resolved elsewhere. Returns an empty host when SMTP is not configured, which
+    makes ``EmailOutput`` fall back to the HTTP email API.
+    """
+    if settings is None:
+        settings = get_all_settings()
+
+    def _pick(setting_key: str, env_key: str) -> str:
+        return (settings.get(setting_key, "") or os.getenv(env_key, "")).strip()
+
+    try:
+        port = int(_pick("smtp_port", "SMTP_PORT") or 587)
+    except ValueError:
+        port = 587
+    # Not stripped: a password is used verbatim.
+    password = settings.get("smtp_password", "") or os.getenv("SMTP_PASSWORD", "")
+    return {
+        "smtp_host": _pick("smtp_host", "SMTP_HOST"),
+        "smtp_port": port,
+        "smtp_user": _pick("smtp_user", "SMTP_USER"),
+        "smtp_password": password,
+        "smtp_from": _pick("smtp_from", "SMTP_FROM"),
+    }
+
+
 # ---- Users ----
 
 def create_user(

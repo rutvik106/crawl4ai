@@ -619,9 +619,11 @@ def _send_report_link_email(
       </div>
     </body></html>
     """
-    mailer = EmailOutput(to=recipients, subject=subject)
+    from dashboard import db
+
+    mailer = EmailOutput(to=recipients, subject=subject, **db.get_smtp_config())
     for recipient in [value.strip() for value in recipients.split(",") if value.strip()]:
-        mailer._send_via_api(recipient, html_body)
+        mailer.send_html(recipient, html_body)
 
 
 def _run_report_job(

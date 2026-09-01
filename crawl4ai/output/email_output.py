@@ -1,11 +1,13 @@
-"""Email output backend — sends crawl results via HTTP API."""
+"""Email output backend — sends crawl results over SMTP, or via HTTP API."""
 
 from __future__ import annotations
 
 import json
+import smtplib
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone, timedelta
+from email.message import EmailMessage
 from typing import Any, Dict, List, Optional
 
 # IST = UTC+5:30
@@ -14,6 +16,11 @@ _IST = timezone(timedelta(hours=5, minutes=30))
 from .base import OutputBackend
 from ..models import CrawlResult
 
+# Fallback transport, used only when no SMTP credentials are supplied. This
+# endpoint requires a bearer token that the caller has no way to provide, so it
+# started returning "HTTP 401 Invalid or expired token" and silently blocked
+# every digest. SMTP is the primary path precisely so delivery does not depend
+# on a third-party service whose credentials we do not control.
 EMAIL_API_URL = "https://time-tracker-3-sigma.vercel.app/api/v1/users/emailsend"
 
 
@@ -40,11 +47,26 @@ class EmailOutput(OutputBackend):
         to: str = "",
         subject: str = "Crawl4AI Results",
         ai_summary: str = "",
+        smtp_host: Optional[str] = None,
+        smtp_port: int = 587,
+        smtp_user: Optional[str] = None,
+        smtp_password: Optional[str] = None,
+        smtp_from: Optional[str] = None,
     ) -> None:
         self.to = to
         self.subject = subject
         self.ai_summary = ai_summary
+        self.smtp_host = (smtp_host or "").strip()
+        self.smtp_port = int(smtp_port or 587)
+        self.smtp_user = (smtp_user or "").strip()
+        self.smtp_password = smtp_password or ""
+        self.smtp_from = (smtp_from or "").strip() or self.smtp_user
         self._results: List[Dict[str, Any]] = []
+
+    @property
+    def smtp_configured(self) -> bool:
+        """True when there are enough credentials to attempt an SMTP send."""
+        return bool(self.smtp_host and self.smtp_user and self.smtp_password)
 
     def save(self, result: CrawlResult, metadata: Optional[Dict[str, Any]] = None) -> None:
         entry: Dict[str, Any] = {
@@ -143,11 +165,12 @@ class EmailOutput(OutputBackend):
             return
 
         recipients = [email.strip() for email in self.to.split(",") if email.strip()]
-        print(f"[email] Sending to {', '.join(recipients)} via email API")
+        transport = f"SMTP ({self.smtp_host})" if self.smtp_configured else "email API"
+        print(f"[email] Sending to {', '.join(recipients)} via {transport}")
         try:
             html_body = self._render_email()
             for recipient in recipients:
-                self._send_via_api(recipient, html_body)
+                self.send_html(recipient, html_body)
             print(f"[email] Sent successfully to {', '.join(recipients)}")
         except Exception as e:
             print(f"[email] FAILED: {e}")
@@ -243,6 +266,46 @@ class EmailOutput(OutputBackend):
         </div>
         </body></html>
         """
+
+    def send_html(self, recipient: str, html_body: str) -> None:
+        """Deliver one HTML message, preferring SMTP over the HTTP API.
+
+        Callers outside this module should use this instead of the transport
+        methods directly, so the choice of transport stays in one place.
+        """
+        if not self.smtp_configured:
+            self._send_via_api(recipient, html_body)
+            return
+        try:
+            self._send_via_smtp(recipient, html_body)
+        except Exception as smtp_error:
+            # Fall back rather than lose the digest outright, but make the
+            # reason visible — a silent fallback is how the 401 went unnoticed.
+            print(f"[email] SMTP delivery failed ({smtp_error}); trying email API")
+            self._send_via_api(recipient, html_body)
+
+    def _send_via_smtp(self, recipient: str, html_body: str) -> None:
+        """Send email directly over SMTP."""
+        message = EmailMessage()
+        message["Subject"] = self.subject
+        message["From"] = self.smtp_from
+        message["To"] = recipient
+        message.set_content(
+            f"{self.subject}\n\nThis message is best viewed in an HTML-capable client."
+        )
+        message.add_alternative(html_body, subtype="html")
+
+        # Port 465 is implicit TLS; 587 (and anything else) negotiates STARTTLS.
+        if self.smtp_port == 465:
+            with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=30) as server:
+                server.login(self.smtp_user, self.smtp_password)
+                server.send_message(message)
+        else:
+            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=30) as server:
+                server.starttls()
+                server.login(self.smtp_user, self.smtp_password)
+                server.send_message(message)
+        print(f"[email] SMTP delivered to {recipient} via {self.smtp_host}", flush=True)
 
     def _send_via_api(self, recipient: str, html_body: str) -> None:
         """Send email via the HTTP API endpoint."""
