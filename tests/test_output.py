@@ -260,3 +260,119 @@ class TestEmailOutputTransport:
         assert mailer.smtp_configured
         assert mailer.smtp_host == "smtp.example.com"
         assert mailer.smtp_from == "sender@example.com", "From should default to the user"
+
+
+class TestEmailOutputApiToken:
+    """The HTTP email API needs a bearer token; sending none caused 401s."""
+
+    def _out(self, **kw):
+        from crawl4ai.output.email_output import EmailOutput
+        return EmailOutput(to="a@b.com", **kw)
+
+    def test_api_preferred_over_smtp_when_token_present(self):
+        """Railway blocks SMTP, so a configured token must not sit behind a timeout."""
+        out = self._out(api_token="tok", **SMTP_CREDS)
+        assert [label for label, _ in out._transports()] == ["email API", "SMTP"]
+
+    def test_smtp_preferred_when_no_token(self):
+        out = self._out(**SMTP_CREDS)
+        assert [label for label, _ in out._transports()] == ["SMTP", "email API"]
+
+    def test_bearer_prefix_added_once(self):
+        captured = {}
+        import crawl4ai.output.email_output as mod
+
+        class FakeResp:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        original = mod.urllib.request.urlopen
+
+        def fake_urlopen(req, timeout=None):
+            captured["headers"] = dict(req.header_items())
+            captured["url"] = req.full_url
+            return FakeResp()
+
+        mod.urllib.request.urlopen = fake_urlopen
+        try:
+            self._out(api_token="rawtoken")._send_via_api("a@b.com", "<p>x</p>")
+            first = captured["headers"].get("Authorization")
+            self._out(api_token="Bearer rawtoken")._send_via_api("a@b.com", "<p>x</p>")
+            second = captured["headers"].get("Authorization")
+        finally:
+            mod.urllib.request.urlopen = original
+
+        assert first == "Bearer rawtoken"
+        assert second == "Bearer rawtoken", "an already-prefixed token must not be doubled"
+
+    def test_custom_api_url_is_used(self):
+        out = self._out(api_token="t", api_url="https://mail.example.com/send")
+        assert out.api_url == "https://mail.example.com/send"
+
+    def test_default_api_url_when_blank(self):
+        from crawl4ai.output.email_output import EMAIL_API_URL
+        assert self._out(api_url="").api_url == EMAIL_API_URL
+
+    def test_raises_when_every_transport_fails(self):
+        """A total delivery failure must raise so callers can record it."""
+        out = self._out(api_token="t", **SMTP_CREDS)
+        out._send_via_api = lambda r, h: (_ for _ in ()).throw(RuntimeError("401"))
+        out._send_via_smtp = lambda r, h: (_ for _ in ()).throw(OSError("timed out"))
+
+        try:
+            out.send_html("a@b.com", "<p>x</p>")
+        except RuntimeError as exc:
+            assert "All email transports failed" in str(exc)
+        else:
+            raise AssertionError("expected a RuntimeError when all transports fail")
+
+
+class TestOutputManagerErrorReporting:
+    def test_finalize_returns_backend_failures(self):
+        """Swallowed finalize() errors are why undelivered email went unnoticed."""
+        from crawl4ai.output.base import OutputBackend, OutputManager
+
+        class Exploding(OutputBackend):
+            def save(self, result, metadata=None): pass
+            def finalize(self): raise RuntimeError("delivery refused")
+
+        class Fine(OutputBackend):
+            def __init__(self): self.done = False
+            def save(self, result, metadata=None): pass
+            def finalize(self): self.done = True
+
+        ok = Fine()
+        manager = OutputManager([Exploding(), ok])
+        errors = manager.finalize()
+
+        assert ok.done, "one failing backend must not stop the others"
+        assert len(errors) == 1
+        assert errors[0][0] == "Exploding"
+        assert "delivery refused" in str(errors[0][1])
+        assert manager.errors == errors
+
+def test_custom_auth_header_sends_raw_token():
+    """APIs expecting e.g. x-api-key must not get a 'Bearer ' prefix."""
+    import crawl4ai.output.email_output as mod
+    from crawl4ai.output.email_output import EmailOutput
+    captured = {}
+
+    class FakeResp:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    original = mod.urllib.request.urlopen
+    mod.urllib.request.urlopen = lambda req, timeout=None: (
+        captured.update(headers=dict(req.header_items())) or FakeResp()
+    )
+    try:
+        EmailOutput(
+            to="a@b.com", api_token="abc123", api_auth_header="x-api-key"
+        )._send_via_api("a@b.com", "<p>x</p>")
+    finally:
+        mod.urllib.request.urlopen = original
+
+    headers = {k.lower(): v for k, v in captured["headers"].items()}
+    assert headers["x-api-key"] == "abc123"
+    assert "authorization" not in headers

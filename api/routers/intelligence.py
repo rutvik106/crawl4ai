@@ -621,7 +621,7 @@ def _send_report_link_email(
     """
     from dashboard import db
 
-    mailer = EmailOutput(to=recipients, subject=subject, **db.get_smtp_config())
+    mailer = EmailOutput(to=recipients, subject=subject, **db.get_email_config())
     for recipient in [value.strip() for value in recipients.split(",") if value.strip()]:
         mailer.send_html(recipient, html_body)
 

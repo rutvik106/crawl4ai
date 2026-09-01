@@ -41,6 +41,7 @@ class OutputManager:
 
     def __init__(self, backends: Optional[List[OutputBackend]] = None) -> None:
         self.backends: List[OutputBackend] = backends or []
+        self.errors: List[tuple] = []
 
     def add(self, backend: OutputBackend) -> None:
         self.backends.append(backend)
@@ -53,7 +54,14 @@ class OutputManager:
         for b in self.backends:
             b.save_many(results, metadata)
 
-    def finalize(self) -> None:
+    def finalize(self) -> List[tuple]:
+        """Flush every backend, returning ``(backend_name, error)`` for failures.
+
+        Failures are collected rather than raised so one broken backend cannot
+        discard the others' output. The list is returned (and kept on ``errors``)
+        so callers can surface it — a delivery failure that only ever reached the
+        logs is how weeks of undelivered email went unnoticed.
+        """
         errors = []
         for b in self.backends:
             try:
@@ -65,3 +73,5 @@ class OutputManager:
         if errors:
             names = ", ".join(n for n, _ in errors)
             print(f"[output] WARNING: {len(errors)} backend(s) failed: {names}", flush=True)
+        self.errors = errors
+        return errors

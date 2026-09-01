@@ -365,17 +365,17 @@ async def _execute_job(job_id: str) -> None:
     recipients = config.get("recipients", "")
     email_subject = config.get("email_subject") or f"IntelliFetch News Digest: {job['name']}"
 
-    smtp_config = db.get_smtp_config(settings)
-    if recipients and not smtp_config.get("smtp_host"):
-        _log(f"[engine] Job {job_id}: no SMTP host configured — email will use the "
-             f"HTTP API fallback")
+    email_config = db.get_email_config(settings)
+    if recipients and not (email_config.get("api_token") or email_config.get("smtp_host")):
+        _log(f"[engine] Job {job_id}: WARNING no email transport configured "
+             f"(set email_api_token or smtp_host) — delivery will fail")
     _, _, outputs = create_job_outputs(
         project_root=project_root,
         job_id=job_id,
         title=job["name"],
         email_to=recipients if recipients else None,
         email_subject=email_subject,
-        **smtp_config,
+        **email_config,
     )
 
     # Vercel Blob Storage — upload artifacts after local backends write them
@@ -682,7 +682,7 @@ async def _execute_job(job_id: str) -> None:
         )
         manager = OutputManager(outputs)
         manager.save(final_result)
-        manager.finalize()
+        output_errors = manager.finalize()
 
         # A run that produced nothing because extraction broke is a failure, not a
         # completed run with no news — surface it on the dashboard so it gets fixed.
@@ -692,8 +692,14 @@ async def _execute_job(job_id: str) -> None:
             "finished_at": datetime.now().isoformat(),
             "article_count": article_count,
         }
-        if status == "failed":
-            update_kwargs["error"] = failure_reason
+        # Record delivery problems even on an otherwise successful run: the
+        # articles are fine and worth keeping, but "crawled but never emailed"
+        # must not look identical to "crawled and emailed".
+        problems = [failure_reason] if failure_reason else []
+        problems += [f"{name} failed: {err}" for name, err in output_errors]
+        if problems:
+            update_kwargs["error"] = " | ".join(problems)
+            _log(f"[engine] Job {job_id}: recorded {len(problems)} problem(s) on the job record")
         # Persist extracted articles for consolidated report retrieval
         if isinstance(articles, list) and article_count > 0:
             update_kwargs["extracted_articles"] = articles

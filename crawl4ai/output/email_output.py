@@ -52,6 +52,9 @@ class EmailOutput(OutputBackend):
         smtp_user: Optional[str] = None,
         smtp_password: Optional[str] = None,
         smtp_from: Optional[str] = None,
+        api_url: Optional[str] = None,
+        api_token: Optional[str] = None,
+        api_auth_header: Optional[str] = None,
     ) -> None:
         self.to = to
         self.subject = subject
@@ -61,12 +64,35 @@ class EmailOutput(OutputBackend):
         self.smtp_user = (smtp_user or "").strip()
         self.smtp_password = smtp_password or ""
         self.smtp_from = (smtp_from or "").strip() or self.smtp_user
+        self.api_url = (api_url or "").strip() or EMAIL_API_URL
+        self.api_token = (api_token or "").strip()
+        # Defaults to a standard bearer header; override for APIs that expect
+        # something else (e.g. "x-api-key"), where no prefix is added.
+        self.api_auth_header = (api_auth_header or "").strip() or "Authorization"
         self._results: List[Dict[str, Any]] = []
 
     @property
     def smtp_configured(self) -> bool:
         """True when there are enough credentials to attempt an SMTP send."""
         return bool(self.smtp_host and self.smtp_user and self.smtp_password)
+
+    @property
+    def api_configured(self) -> bool:
+        """True when a token is available for the HTTP email API."""
+        return bool(self.api_token)
+
+    def _transports(self) -> List[tuple]:
+        """Return ``(label, sender)`` pairs in the order they should be tried.
+
+        A configured API token wins over SMTP because Railway blocks outbound
+        SMTP (ports 25/465/587) on Free/Trial/Hobby plans — trying SMTP first
+        there burns a connection timeout on every single send.
+        """
+        smtp = ("SMTP", self._send_via_smtp)
+        api = ("email API", self._send_via_api)
+        if self.api_configured:
+            return [api, smtp] if self.smtp_configured else [api]
+        return [smtp, api] if self.smtp_configured else [api]
 
     def save(self, result: CrawlResult, metadata: Optional[Dict[str, Any]] = None) -> None:
         entry: Dict[str, Any] = {
@@ -273,16 +299,21 @@ class EmailOutput(OutputBackend):
         Callers outside this module should use this instead of the transport
         methods directly, so the choice of transport stays in one place.
         """
-        if not self.smtp_configured:
-            self._send_via_api(recipient, html_body)
-            return
-        try:
-            self._send_via_smtp(recipient, html_body)
-        except Exception as smtp_error:
-            # Fall back rather than lose the digest outright, but make the
-            # reason visible — a silent fallback is how the 401 went unnoticed.
-            print(f"[email] SMTP delivery failed ({smtp_error}); trying email API")
-            self._send_via_api(recipient, html_body)
+        transports = self._transports()
+        last_error: Optional[Exception] = None
+        for label, send in transports:
+            try:
+                send(recipient, html_body)
+                return
+            except Exception as error:
+                # Report every failure — a silent fallback is exactly how the
+                # expired API token went unnoticed for days.
+                last_error = error
+                print(f"[email] {label} delivery failed for {recipient}: {error}", flush=True)
+        raise RuntimeError(
+            f"All email transports failed for {recipient} "
+            f"({', '.join(label for label, _ in transports)}): {last_error}"
+        )
 
     def _send_via_smtp(self, recipient: str, html_body: str) -> None:
         """Send email directly over SMTP."""
@@ -296,12 +327,14 @@ class EmailOutput(OutputBackend):
         message.add_alternative(html_body, subtype="html")
 
         # Port 465 is implicit TLS; 587 (and anything else) negotiates STARTTLS.
+        # Timeout kept short: on hosts that block SMTP this fails on every send,
+        # so a long wait just delays the working fallback.
         if self.smtp_port == 465:
-            with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=30) as server:
+            with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=15) as server:
                 server.login(self.smtp_user, self.smtp_password)
                 server.send_message(message)
         else:
-            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=30) as server:
+            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as server:
                 server.starttls()
                 server.login(self.smtp_user, self.smtp_password)
                 server.send_message(message)
@@ -316,10 +349,20 @@ class EmailOutput(OutputBackend):
             "text": f"Crawl4AI Results - {self.subject}",
         }
 
+        headers = {"Content-Type": "application/json"}
+        if self.api_token:
+            token = self.api_token
+            if self.api_auth_header.lower() == "authorization":
+                # Accept either a bare token or one already prefixed by the caller,
+                # so a pasted "Bearer x" value does not become "Bearer Bearer x".
+                if not token.lower().startswith("bearer "):
+                    token = f"Bearer {token}"
+            headers[self.api_auth_header] = token
+
         req = urllib.request.Request(
-            EMAIL_API_URL,
+            self.api_url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
 
@@ -330,4 +373,5 @@ class EmailOutput(OutputBackend):
                 print(f"[email] API call succeeded for {recipient} (status={response.status})", flush=True)
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8")
-            raise Exception(f"Email API HTTP {e.code}: {body}")
+            hint = " (no API token configured)" if not self.api_token else ""
+            raise Exception(f"Email API HTTP {e.code}{hint}: {body}")

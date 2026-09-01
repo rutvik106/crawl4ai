@@ -55,6 +55,9 @@ def create_job_outputs(
     smtp_user: Optional[str] = None,
     smtp_password: Optional[str] = None,
     smtp_from: Optional[str] = None,
+    api_url: Optional[str] = None,
+    api_token: Optional[str] = None,
+    api_auth_header: Optional[str] = None,
     sendgrid_api_key: Optional[str] = None,
 ) -> tuple:
     """Create a full set of output backends under ``output/<job_id>/``.
@@ -88,6 +91,9 @@ def create_job_outputs(
             smtp_user=smtp_user,
             smtp_password=smtp_password,
             smtp_from=smtp_from,
+            api_url=api_url,
+            api_token=api_token,
+            api_auth_header=api_auth_header,
         ))
 
     return job_id, job_dir, backends

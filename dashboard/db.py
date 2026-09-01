@@ -448,12 +448,13 @@ def get_all_settings() -> Dict[str, str]:
     return {r["key"]: r["value"] for r in rows}
 
 
-def get_smtp_config(settings: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    """Resolve SMTP credentials as kwargs for ``EmailOutput``.
+def get_email_config(settings: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Resolve email transport credentials as kwargs for ``EmailOutput``.
 
     Saved settings win over environment variables, matching how API keys are
-    resolved elsewhere. Returns an empty host when SMTP is not configured, which
-    makes ``EmailOutput`` fall back to the HTTP email API.
+    resolved elsewhere. Covers both transports: SMTP (used when a host and
+    credentials exist) and the HTTP email API (used when a token exists, and
+    preferred on hosts like Railway that block outbound SMTP).
     """
     if settings is None:
         settings = get_all_settings()
@@ -465,14 +466,18 @@ def get_smtp_config(settings: Optional[Dict[str, str]] = None) -> Dict[str, Any]
         port = int(_pick("smtp_port", "SMTP_PORT") or 587)
     except ValueError:
         port = 587
-    # Not stripped: a password is used verbatim.
+    # Secrets are not stripped: they are used verbatim.
     password = settings.get("smtp_password", "") or os.getenv("SMTP_PASSWORD", "")
+    api_token = settings.get("email_api_token", "") or os.getenv("EMAIL_API_TOKEN", "")
     return {
         "smtp_host": _pick("smtp_host", "SMTP_HOST"),
         "smtp_port": port,
         "smtp_user": _pick("smtp_user", "SMTP_USER"),
         "smtp_password": password,
         "smtp_from": _pick("smtp_from", "SMTP_FROM"),
+        "api_url": _pick("email_api_url", "EMAIL_API_URL"),
+        "api_token": api_token.strip(),
+        "api_auth_header": _pick("email_api_auth_header", "EMAIL_API_AUTH_HEADER"),
     }
 
 
